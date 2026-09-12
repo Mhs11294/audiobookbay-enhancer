@@ -15,7 +15,8 @@ autocomplete endpoint) to resolve book pages and ratings. Nothing is
 sent anywhere else; lookups are cached locally in the userscript manager.
 
 ## Screenshots
-![Card view](screenshots/list.png)
+![List view](screenshots/1.png)
+![Card view](screenshots/2.png)
 
 ## Licence
 MIT
