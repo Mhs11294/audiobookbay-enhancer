@@ -1,0 +1,1692 @@
+// ==UserScript==
+// @name         AudiobookBay Enhancer
+// @namespace    https://github.com/Mhs11294/audiobookbay-enhancer
+// @version      0.1.1
+// @description  Card list view, infinite scroll, category/language/format/bitrate filters, Goodreads ratings & links, Colophon-inspired themes for ABB
+// @license      MIT
+// @homepageURL  https://github.com/Mhs11294/audiobookbay-enhancer
+// @supportURL   https://github.com/Mhs11294/audiobookbay-enhancer/issues
+// @updateURL    https://raw.githubusercontent.com/Mhs11294/audiobookbay-enhancer/main/abb-enhancer.user.js
+// @downloadURL  https://raw.githubusercontent.com/Mhs11294/audiobookbay-enhancer/main/abb-enhancer.user.js
+// @match        https://audiobookbay.lu/*
+// @match        https://*.audiobookbay.lu/*
+// @match        http://audiobookbay.lu/*
+// @connect      www.goodreads.com
+// @grant        GM_addStyle
+// @grant        GM_setValue
+// @grant        GM_getValue
+// @grant        GM_xmlhttpRequest
+// @grant        GM_registerMenuCommand
+// @run-at       document-end
+// ==/UserScript==
+
+
+
+(() => {
+  'use strict';
+
+  /* =====================================================================
+     1. Theme roster (Colophon palette, verbatim)
+        Token order: [bg, fg, mutedFg, card, secondary, accent, accentFg,
+                      border, input, ring, brand, brandSoft]
+     ===================================================================== */
+  const RAW = {
+    /* --- dark --- */
+    'rr-dark':              ['#120f0e','#ededec','#aaa39e','#1b1816','#262321','#34251a','#d9af7f','#2c2826','#393431','#79716b','#d3a46e','#402d1d'],
+    'catppuccin-mocha':     ['#1e1e2e','#cdd6f4','#a6adc8','#313244','#3b3c4f','#3c3d50','#cea9fa','#585b70','#3d3e51','#cba6f7','#cba6f7','#45475a'],
+    'catppuccin-macchiato': ['#24273a','#cad3f5','#a5adcb','#363a4f','#3f4459','#40445a','#d5b4ff','#5b6078','#41455c','#c6a0f6','#c6a0f6','#494d64'],
+    'catppuccin-frappe':    ['#303446','#c6d0f5','#adb5d6','#414559','#494e63','#4a4f64','#c6d0f5','#626880','#4b5066','#ca9ee6','#d0a4ed','#51576d'],
+    'solarized-dark':       ['#002b36','#8e9fa1','#879ea5','#073642','#133d48','#024558','#9eb0b2','#153a44','#1e4049','#268bd2','#41a1ea','#004053'],
+    'nord':                 ['#2e3440','#eceff4','#d8dee9','#3b4252','#464d5c','#434c5e','#eceff4','#454b57','#505561','#88c0d0','#88c0d0','#4c566a'],
+    'monokai':              ['#272822','#f8f8f2','#aaa691','#3b3a32','#47463e','#434239','#66d9ef','#40413b','#4b4c46','#66d9ef','#66d9ef','#49483e'],
+    'sonokai':              ['#2c2e34','#e2e2e3','#a5aab7','#33353f','#3e4049','#363944','#76cce0','#181819','#4c4e53','#76cce0','#76cce0','#414550'],
+    'ayu-dark':             ['#0d1017','#bfbdb6','#7e879e','#141821','#1c222a','#1b202a','#e6b450','#1b1f29','#262f33','#e6b450','#e6b450','#212732'],
+    'ayu-mirage':           ['#1f2430','#cccac2','#929daf','#282e3b','#2f3844','#2d3443','#fc6',   '#171b24','#36444b','#fc6',   '#fc6',   '#313949'],
+    'everforest-dark':      ['#2d353b','#d3c6aa','#a5b2a9','#343f44','#3b484c','#3d484d','#b4cd8c','#4f585e','#425255','#a7c080','#a7c080','#475258'],
+    'iceberg':              ['#161821','#c6c8d1','#8a8fa9','#1e2132','#282b3c','#272c42','#e2e4ed','#0f1117','#343640','#84a0c6','#84a0c6','#5b6389'],
+    'kanagawa-wave':        ['#1f1f28','#dcd7ba','#99988f','#2a2a37','#373341','#363646','#dcd7ba','#16161d','#453c47','#7e9cd8','#7e9cd8','#2d4f67'],
+    'kanagawa-dragon':      ['#181616','#c5c9c5','#899289','#282727','#303130','#393836','#c5c9c5','#0d0c0c','#343534','#8ba4b0','#8ba4b0','#2d4f67'],
+    'nightfox':             ['#192330','#cdcecf','#8e9bad','#212e3f','#2b3848','#29394f','#cdcecf','#39506d','#38414d','#719cd6','#729ed8','#3c5372'],
+    'rose-pine':            ['#191724','#e0def4','#928eac','#1f1d2e','#2a283a','#26233a','#ebbcba','#524f67','#3b3948','#ebbcba','#ebbcba','#403d52'],
+    'rose-pine-moon':       ['#232136','#e0def4','#9e9ab8','#2a273f','#35324a','#393552','#ed9d9a','#56526e','#444258','#ea9a97','#ea9a97','#44415a'],
+    'tokyo-night':          ['#1a1b26','#c0caf5','#8b96c3','#292e42','#32384d','#283457','#c0caf5','#3b4261','#37394a','#7aa2f7','#7aa2f7','#394b70'],
+    'tokyo-night-storm':    ['#24283b','#c0caf5','#949fcd','#292e42','#32384d','#2e3c64','#c0caf5','#3b4261','#40455c','#7aa2f7','#7aa2f7','#394b70'],
+    'night-owl':            ['#011627','#d6deeb','#94a0b0','#0b2942','#19344d','#15334b','#82aaff','#5f7e97','#25384a','#82aaff','#82aaff','#1d3b53'],
+    'github-dark':          ['#0d1117','#e6edf3','#848c98','#161b22','#22272e','#1f242c','#3b8bff','#30363d','#31363c','#2f81f7','#3889ff','#13233a'],
+    'vitesse-dark':         ['#121212','#dbd7ca','#9c9991','#181818','#232322','#222',   '#599f81','#252525','#343331','#4d9375','#529879','#292929'],
+    'flexoki-dark':         ['#100f0f','#cecdc3','#8a8883','#1c1b1a','#262624','#343331','#cecdc3','#282726','#2f2f2d','#4385be','#4b8dc6','#403e3c'],
+    'dracula':              ['#282a36','#f8f8f2','#90a2d7','#343746','#424450','#424450','#ccabff','#191a21','#21222c','#906ce8','#bd93f9','#44475a'],
+    'onedark':              ['#282c34','#abb2bf','#939aa9','#2c313a','#21252b','#323842','#6dbcfc','#181a1f','#1d1f23','#828997','#61afef','#3e4451'],
+    /* --- light --- */
+    'rr-light':             ['#fbfaf8','#191615','#5d554f','#fff',   '#f1f0ee','#f7eddf','#62341d','#e5e2df','#d9d5d0','#90837b','#804d35','#f2e4cf'],
+    'nord-light':           ['#e5e9f0','#2e3440','#4c566a','#eceff4','#dde1e6','#e1e6ee','#2e3440','#d8dee9','#c9cdd5','#5e81ac','#40628b','#d8dee9'],
+    'ayu-light':            ['#f8f9fa','#5c6166','#616c7c','#fcfcfc','#f0f0f1','#f2f2f3','#5c6166','#eaedef','#e1e2e4','#cc7a00','#9c5d00','#e8eaed'],
+    'everforest-light':     ['#f4f0d9','#5b6971','#5c6b5b','#fdf6e3','#efecd9','#e6e2cc','#546169','#bdc3af','#d9dec8','#7a8c00','#5e6e00','#e0dcc7'],
+    'gruvbox-light':        ['#fbf1c7','#3c3836','#716355','#f9f5d7','#ece6ca','#ebdbb2','#3c3836','#bdae93','#e1d3b0','#af3a03','#af3a03','#d5c4a1'],
+    'iceberg-light':        ['#dcdfe7','#33374c','#555b73','#e8e9ec','#dadbe0','#c9cdd7','#33374c','#cad0de','#c2c5d0','#2d539e','#2d539e','#a7b2cd'],
+    'kanagawa-lotus':       ['#e5ddb0','#545464','#5c5b52','#f2ecbc','#efdeb2','#e4d794','#434252','#d5cea3','#ddc3a1','#4d699b','#3f5b8b','#9fb5c9'],
+    'rose-pine-dawn':       ['#faf4ed','#464261','#696582','#fffaf3','#f4ebe4','#f2e9e1','#464261','#cecacd','#e4d8d1','#c87471','#a0514e','#dfdad9'],
+    'tokyo-night-day':      ['#d0d5e3','#2a51ae','#4e557a','#e1e2e7','#d5d7e4','#c4c8da','#1b409c','#a8aecb','#b8c2dd','#2272dd','#0053b3','#b3b8d1'],
+    'light-owl':            ['#f6f6f6','#403f53','#696878','#fbfbfb','#ededee','#e0e7ea','#403f53','#d9d9d9','#dadade','#4876d6','#3965c4','#d3e8f8'],
+    'github-light':         ['#f6f8fa','#1f2328','#626a73','#fff',   '#edeeee','#f4f6f8','#0567d8','#d0d7de','#d4d7d9','#0969da','#0064d5','#ddf4ff'],
+    'vitesse-light':        ['#f7f7f7','#393a34','#696a65','#fff',   '#f0f0ef','#f1f0e9','#1c6b48','#f0f0f0','#dadad9','#1c6b48','#1c6b48','#e7e5db'],
+    'flexoki-light':        ['#f2f0e5','#100f0f','#65645f','#fffcf0','#ece9de','#dad8ce','#16559c','#e6e4d9','#ceccc3','#205ea6','#205ea6','#cecdc3'],
+    'one-light':            ['#fafafa','#383a42','#686b76','#fff',   '#f0f0f1','#e5e5e6','#383a42','#dbdbdc','#dcdcde','#4078f2','#2e63db','#dbdbdc'],
+    'alucard':              ['#ece9df','#1f1f1f','#666046','#fffbeb','#edeadb','#ece9df','#6348c7','#bcbab3','#ccc9c1','#644ac9','#644ac9','#dedccf'],
+    'latte':                ['#e6e9ef','#4c4f69','#5c5f77','#eff1f5','#dbdfe5','#dfdbed','#6d27c3','#d2d6df','#c3c7d2','#6a6e8b','#812fe6','#ccd0da'],
+    'solarized':            ['#f9f2df','#38525a','#51666d','#fdf6e3','#ede8d5','#f6efdc','#015f98','#dddbcb','#cdcfc3','#547884','#0069a7','#eee8d5'],
+  };
+  const TOKENS = ['bg', 'fg', 'mut', 'card', 'sec', 'acc', 'accFg', 'bd', 'input', 'ring', 'brand', 'brandSoft'];
+  const SCHEMES = Object.fromEntries(Object.entries(RAW).map(([k, v]) =>
+    [k, Object.fromEntries(TOKENS.map((t, i) => [t, v[i]]))]));
+
+  const LIGHT_SCHEMES = new Set([
+    'rr-light', 'nord-light', 'ayu-light', 'everforest-light', 'gruvbox-light', 'iceberg-light',
+    'kanagawa-lotus', 'rose-pine-dawn', 'tokyo-night-day', 'light-owl', 'github-light',
+    'vitesse-light', 'flexoki-light', 'one-light', 'alucard', 'latte', 'solarized',
+  ]);
+  const LABEL_OVERRIDES = {
+    'rr-dark': 'Default Dark', 'rr-light': 'Default Light', 'github-dark': 'GitHub Dark',
+    'github-light': 'GitHub Light', 'onedark': 'One Dark', 'latte': 'Catppuccin Latte',
+  };
+  const DEFAULT_SCHEME = 'rr-dark';
+
+  const schemeKind  = k => (LIGHT_SCHEMES.has(k) ? 'light' : 'dark');
+  const schemeLabel = k => LABEL_OVERRIDES[k] ||
+    k.split('-').map(w => w[0].toUpperCase() + w.slice(1)).join(' ');
+  const luminance = hex => {                       // relative luminance of #rgb / #rrggbb
+    const h = hex.length === 4 ? [...hex.slice(1)].map(c => c + c).join('') : hex.slice(1);
+    const n = parseInt(h, 16);
+    return 0.2126 * (n >> 16) + 0.7152 * ((n >> 8) & 255) + 0.0722 * (n & 255);
+  };
+  const schemesByKind = kind => Object.keys(SCHEMES)   // darkest → lightest within each group
+    .filter(k => schemeKind(k) === kind)
+    .sort((a, b) => luminance(SCHEMES[a].bg) - luminance(SCHEMES[b].bg));
+
+  /* =====================================================================
+     2. Site vocabulary
+     ===================================================================== */
+  const CATEGORIES = [
+    ['(Post)apocalyptic', 'postapocalyptic'], ['Action', 'action'], ['Adventure', 'adventure'],
+    ['Art', 'art'], ['Autobiography & Biographies', 'autobiography-biographies'],
+    ['Business', 'business'], ['Computer', 'computer'], ['Contemporary', 'contemporary'],
+    ['Crime', 'crime'], ['Detective', 'detective'], ['Doctor Who', 'doctor-who-sci-fi'],
+    ['Education', 'education'], ['Fantasy', 'fantasy'], ['General Fiction', 'general-fiction'],
+    ['Historical Fiction', 'historical-fiction'], ['History', 'history'], ['Horror', 'horror'],
+    ['Humor', 'humor'], ['Lecture', 'lecture'], ['LGBT', 'lgbt'], ['Light Novel', 'light-novel'],
+    ['Literature', 'literature'], ['LitRPG', 'litrpg'],
+    ['Misc. Non-fiction', 'general-non-fiction'], ['Mystery', 'mystery'],
+    ['Paranormal', 'paranormal'], ['Plays & Theater', 'plays-theater'],
+    ['Poetry', 'poetry'], ['Political', 'political'],
+    ['Radio Productions', 'radio-productions'], ['Romance', 'romance'],
+    ['Sci-Fi', 'sci-fi'], ['Science', 'science'], ['Self-help', 'self-help'],
+    ['Spiritual & Religious', 'spiritual'], ['Sport & Recreation', 'sports'],
+    ['Suspense', 'suspense'], ['Thriller', 'thriller'], ['True Crime', 'true-crime'],
+    ['Tutorial', 'tutorial'], ['Westerns', 'westerns'], ['Zombies', 'zombies'], ['Other', 'other'],
+  ];
+  const LANGUAGES = ['english', 'dutch', 'french', 'spanish', 'german', 'portuguese'];
+  const KNOWN_FORMATS = ['mp3', 'm4b', 'm4a', 'flac', 'ogg'];
+  const FORMATS = [...KNOWN_FORMATS.map(f => [f, f.toUpperCase()]), ['other', 'Other (MIXED, …)']];
+  const BITRATES = [ // [key, label, test(kbps)] — 0 means not stated / "??"
+    ['gt128',   'above 128 kbps', k => k > 128],
+    ['128',     '128 kbps',       k => k === 128],
+    ['mid',     '65–127 kbps',    k => k > 64 && k < 128],
+    ['64',      '64 kbps',        k => k === 64],
+    ['lt64',    'below 64 kbps',  k => k > 0 && k < 64],
+    ['unknown', 'unknown',        k => !k],
+  ];
+  const BITRATE_TEST = Object.fromEntries(BITRATES.map(([k, , t]) => [k, t]));
+
+  const NAV_LINKS = [
+    ['Login',   '/member/login',            'Login and share your audio books'],
+    ['Request', '/forum/general-requests/', 'Request audio books'],
+    ['Forum',   '/forum/',                  'AudioBook Bay Forum'],
+    ['Donate',  '/member/donate.php',       'Donations'],
+  ];
+
+  const POST_LINK_SEL   = 'a[href*="audio-books"], .postTitle a, h2 a, h3 a';
+  const FILL_TARGET     = 24;  // keep at least this many visible cards while hybrid filters are on
+  const MAX_EMPTY_PAGES = 3;   // consecutive pages that add nothing before we call it the end
+  const COLOPHON_KEY    = kind => `colophon:scheme-${kind}`;
+  const MAX_BURST_PAGES = 40;  // pages a hidden filter may auto-fetch before pausing for confirmation
+  const ICON_SEARCH = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
+    + 'stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">'
+    + '<circle cx="11" cy="11" r="7.5"/><path d="m20 20-4.2-4.2"/></svg>';
+
+  /* =====================================================================
+     3. Utilities
+     ===================================================================== */
+  const strip = s => (s || '').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
+  const esc = s => (s || '').replace(/[&<>"']/g,
+    c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const abs = (href, base) => { try { return new URL(href, base).href; } catch { return href; } };
+  const el = (tag, cls, text) => {
+    const n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text != null) n.textContent = text;
+    return n;
+  };
+  const storage = (getStore, prefix = '') => ({
+    get: k => { try { return getStore().getItem(prefix + k); } catch { return null; } },
+    set: (k, v) => {
+      try { v ? getStore().setItem(prefix + k, v) : getStore().removeItem(prefix + k); }
+      catch { /* storage unavailable */ }
+    },
+  });
+  const local   = storage(() => localStorage);              // shared with Colophon
+  const session = storage(() => sessionStorage, 'abb-hyb-'); // hybrid filters between pages
+
+  // Close a popover on outside pointer or Escape.
+  function dismissOnOutside(scope, close) {
+    document.addEventListener('pointerdown', e => { if (!scope.contains(e.target)) close(); });
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') close(); });
+  }
+
+  /* =====================================================================
+     4. Page context
+     ===================================================================== */
+  const isBook   = /^\/abss\//.test(location.pathname);
+  const isForum  = /^\/forum(\/|$)/.test(location.pathname);
+  const isSearch = new URLSearchParams(location.search).has('s');
+  const urlCat   = (location.pathname.match(/^\/audio-books\/type\/([^/]+)/) || [])[1] || '';
+  const urlLang  = (location.pathname.match(/^\/audio-books\/tag\/([^/]+)/)  || [])[1] || '';
+
+
+  /* =====================================================================
+     5. Settings & theme
+     ===================================================================== */
+  const SETTINGS_KEY = 'abb-settings';
+  const colophonScheme = local.get(COLOPHON_KEY('dark'));
+  const settings = Object.assign({
+    theme: SCHEMES[colophonScheme] ? colophonScheme : DEFAULT_SCHEME,
+    infinite: true,        // ∞ Scroll
+    grTitles: true,        // show Goodreads' canonical titles
+    sort: 'posted',        // list sort order (Part C)
+    blockScripts: true,    // drop third-party <script src> — ads / pop-unders (Part D)
+  }, GM_getValue(SETTINGS_KEY, {}));
+
+  // One-off migration from the v10 per-key values
+  {
+    let touched = false;
+    const OLD = { 'abb-theme': 'theme', 'abb-infinite': 'infinite', 'abb-gr-titles': 'grTitles' };
+    for (const [old, key] of Object.entries(OLD)) {
+      const v = GM_getValue(old);
+      if (v !== undefined) { settings[key] = v; GM_deleteValue(old); touched = true; }
+    }
+    if (!SCHEMES[settings.theme]) { settings.theme = DEFAULT_SCHEME; touched = true; }
+    if (touched) GM_setValue(SETTINGS_KEY, settings);
+  }
+  // The one way to change a setting: updates the object and persists it.
+  function setting(key, value) {
+    settings[key] = value;
+    GM_setValue(SETTINGS_KEY, settings);
+  }
+  const CSS_VARS = {
+    bg: '--background', fg: '--foreground', mut: '--muted-foreground', card: '--card',
+    sec: '--secondary', acc: '--accent', accFg: '--accent-foreground', bd: '--border',
+    input: '--input', ring: '--ring', brand: '--brand', brandSoft: '--brand-soft',
+  };
+  function applyTheme(name) {
+    const s = SCHEMES[name];
+    const style = document.documentElement.style;
+    for (const [token, cssVar] of Object.entries(CSS_VARS)) style.setProperty(cssVar, s[token]);
+    document.documentElement.dataset.abbScheme = schemeKind(name);
+  }
+  function setTheme(name) {  // apply + persist + keep Colophon in sync
+    if (!SCHEMES[name]) return;
+    setting('theme', name);
+    applyTheme(name);
+    local.set(COLOPHON_KEY(schemeKind(name)), name);
+  }
+  applyTheme(settings.theme);
+
+  /* ---- Third-party script blocking (document-start) ----
+     Neutralise external <script src> from hosts we don't recognise before they load — the same
+     MutationObserver technique consent managers use. Inline scripts are left alone. Toggle via the
+     Tampermonkey menu; if you run uBlock Origin this is largely redundant and can stay off. */
+  const SCRIPT_ALLOW = /(^|\.)(audiobookbay\.lu|cloudflare\.com|cloudflareinsights\.com)$/i;
+  const blockedScripts = [];
+  if (settings.blockScripts) {
+    const neutralise = node => {
+      if (node.nodeType !== 1 || node.tagName !== 'SCRIPT') return;
+      const src = node.getAttribute('src');
+      if (!src) return;
+      let host; try { host = new URL(src, location.href).hostname; } catch { return; }
+      if (SCRIPT_ALLOW.test(host)) return;
+      node.type = 'text/blocked';          // no longer a JavaScript MIME type
+      node.removeAttribute('src');
+      node.remove();
+      blockedScripts.push(host);
+    };
+    new MutationObserver(muts => { for (const m of muts) m.addedNodes.forEach(neutralise); })
+      .observe(document.documentElement, { childList: true, subtree: true });
+  }
+  GM_registerMenuCommand(
+    `Third-party scripts: ${settings.blockScripts ? 'blocked' : 'allowed'} — click to toggle`,
+    () => { setting('blockScripts', !settings.blockScripts); location.reload(); });
+
+  /* =====================================================================
+     6. Styles
+     ===================================================================== */
+    const CSS = `
+    /* ---- base ---- */
+    html[data-abb-scheme="dark"]  { color-scheme: dark; }
+    html[data-abb-scheme="light"] { color-scheme: light; }
+    html, body { background: var(--background) !important; margin: 0 !important; }
+    html.abb-boot body { visibility: hidden !important; }   /* hidden until init() has built the UI */
+    body.abb-list, body.abb-content, body.abb-forum, body.abb-book, body.abb-page {
+      color: var(--foreground);
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    }
+    body.abb-list > *:not(#abb-root), body.abb-content > *:not(#abb-root), body.abb-forum > *:not(#abb-root) { display: none !important; }
+    #abb-root { max-width: 1240px; margin: 0 auto; padding: 20px 24px 60px; font-size: 15px; line-height: 1.5; text-align: left; }
+    #abb-root * { box-sizing: border-box; }
+    #abb-root a { color: inherit; text-decoration: none; }
+
+    /* ---- shared controls ---- */
+    .abb-btn {
+      display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 10px;
+      background: var(--secondary); color: var(--foreground); border: 1px solid var(--border);
+      border-radius: 8px; font: inherit; font-size: 13px; cursor: pointer; white-space: nowrap;
+    }
+    .abb-btn:hover { background: var(--brand-soft); color: var(--brand); }
+    .abb-icon { width: 32px; padding: 0; justify-content: center; }
+    .abb-input {
+      background: var(--secondary); color: var(--foreground); border: 1px solid var(--input);
+      border-radius: 8px; padding: 7px 12px; font: inherit; font-size: 13px; outline: none;
+    }
+    .abb-input:focus-visible { border-color: var(--ring); box-shadow: 0 0 0 2px var(--ring); }
+    .abb-pop {
+      position: absolute; right: 0; top: calc(100% + 6px); z-index: 200; display: none;
+      background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+      padding: 12px; box-shadow: 0 10px 25px rgba(0,0,0,.3);
+    }
+    .is-open > .abb-pop { display: block; }
+    .abb-badge {
+      display: inline-block; background: var(--secondary); color: var(--muted-foreground);
+      padding: 3px 9px; border-radius: 999px; font-size: 11.5px; white-space: nowrap;
+    }
+    .abb-badge.abb-cat { color: var(--brand); background: var(--brand-soft); }
+    .abb-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+    .abb-chip {
+      background: var(--secondary); color: var(--foreground); border: 1px solid var(--border);
+      padding: 3px 10px; border-radius: 999px; font-size: 12px;
+    }
+    .abb-links { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    .abb-dl {
+      display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px;
+      background: var(--brand-soft); color: var(--brand); border: 1px solid var(--border);
+      border-radius: 8px; font-size: 12.5px; font-weight: 600;
+    }
+    .abb-dl:hover { background: var(--brand); color: var(--background); }
+    .abb-note { font-size: 12px; color: var(--muted-foreground); }
+    .abb-desc { color: var(--muted-foreground); text-align: left; }
+    .abb-desc p { margin: 0 0 8px; }
+    .abb-desc .abb-body { color: var(--foreground); }
+
+    /* ---- header (shared by list + book pages) ---- */
+    .abb-header {
+      display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+      gap: 0 12px; padding: 12px 20px; margin-bottom: 16px;
+      background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+    }
+    .abb-header h1 { font-size: 18px; font-weight: 700; margin: 0; }
+    .abb-nav { display: flex; align-items: center; gap: 4px; }
+    .abb-nav > a { color: var(--muted-foreground); font-size: 13px; padding: 6px 12px; border-radius: 8px; }
+    .abb-nav > a:hover { background: var(--secondary); color: var(--foreground); }
+    .abb-search { display: flex; align-items: center; margin: 0 0 0 8px; }
+    .abb-search .abb-input {
+      width: 0; height: 32px; padding: 0; margin-right: 0; opacity: 0; border-color: transparent;
+      transition: width .25s ease, opacity .2s, padding .25s, margin .25s;
+    }
+    .abb-header.abb-search-open .abb-search .abb-input {
+      width: 220px; padding: 0 12px; margin-right: 6px; opacity: 1; border-color: var(--input);
+    }
+    .abb-search .abb-adv {
+      max-width: 0; opacity: 0; overflow: hidden; white-space: nowrap; font-size: 12px;
+      transition: max-width .25s ease, opacity .2s, margin .25s;
+    }
+    .abb-header.abb-search-open .abb-search .abb-adv { max-width: 120px; opacity: 1; margin-right: 10px; }
+    .abb-theme { position: relative; margin-left: 8px; }
+    .abb-theme-btn span { display: none; }      /* theme name lives in the tooltip */
+    .abb-theme-pop { right: 0; }                 /* popover opens leftwards from the edge */
+    .abb-theme-pop { width: 340px; max-height: 380px; overflow-y: auto; }
+    .abb-pop-title {
+      font-size: 11px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase;
+      color: var(--muted-foreground); margin: 0 0 6px;
+    }
+    .abb-swatches { display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px; margin-bottom: 12px; }
+    .abb-swatches:last-child { margin-bottom: 0; }
+    .abb-swatch {
+      text-align: left; border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px;
+      font: inherit; font-size: 11.5px; cursor: pointer;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .abb-swatch:hover { border-color: var(--ring); }
+    .abb-swatch.is-active { border-color: var(--brand); box-shadow: inset 0 0 0 1px var(--brand); }
+
+    /* Site stylesheets on member/forum pages reach into our header — pin the essentials */
+    #abb-root .abb-header, #abb-root .abb-header h1, #abb-root .abb-toolbar, #abb-root .abb-btn {
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif !important;
+    }
+    #abb-root .abb-header h1 { font-size: 18px !important; color: var(--foreground) !important; }
+    #abb-root .abb-logo, #abb-root .abb-nav > a, #abb-root .abb-adv { text-decoration: none !important; }
+    #abb-root .abb-logo { color: var(--foreground) !important; }
+    #abb-root .abb-nav > a, #abb-root .abb-adv { color: var(--muted-foreground) !important; }
+    #abb-root .abb-nav > a:hover { color: var(--foreground) !important; }
+    #abb-root .abb-adv:hover { color: var(--brand) !important; }
+    #abb-root .abb-btn { color: var(--foreground) !important; }
+    #abb-root .abb-btn:hover { color: var(--brand) !important; }
+
+    /* ---- list mode ---- */
+    .abb-toolbar { position: sticky; top: 8px; z-index: 5; display: flex; flex-wrap: wrap; gap: 8px;
+      align-items: center; padding: 10px; margin: 12px 0;
+      background: color-mix(in oklab, var(--background) 92%, transparent);
+      backdrop-filter: blur(10px); border: 1px solid var(--border); border-radius: 12px;
+    }
+    .abb-toolbar .abb-input[type="search"] { flex: 1; min-width: 170px; }
+    .abb-count { font-size: 12px; color: var(--muted-foreground); margin-left: auto; }
+    .abb-switch {
+      display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 12.5px;
+      color: var(--muted-foreground); user-select: none; white-space: nowrap;
+    }
+    .abb-switch input { cursor: pointer; accent-color: var(--brand); }
+    #abb-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(500px, 1fr)); gap: 12px; }
+    .abb-card {
+      display: flex; flex-wrap: wrap; gap: 14px; padding: 14px; border-radius: 12px;
+      background: var(--card); border: 1px solid var(--border); align-items: center;
+      transition: background .15s, border-color .15s;
+    }
+    .abb-card:hover { background: var(--brand-soft); border-color: var(--accent); }
+    .abb-row { display: flex; gap: 14px; align-items: center; width: 100%; }
+    .abb-cover {
+      width: 72px; height: 108px; object-fit: cover; border-radius: 8px;
+      flex-shrink: 0; background: var(--secondary);
+    }
+    .abb-main { min-width: 0; flex: 1; }
+    .abb-title {
+      display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+      font-weight: 600; font-size: 15px; line-height: 1.35; margin-bottom: 8px;
+    }
+    .abb-title:hover { color: var(--brand); }
+    .abb-by { color: var(--muted-foreground); font-weight: 400; font-size: 13px; }
+    .abb-badges { display: flex; flex-wrap: wrap; gap: 6px; }
+    .abb-actions { display: flex; gap: 6px; margin-left: auto; flex-shrink: 0; }
+    .abb-toggle { font-size: 14px; transition: transform .2s, background .15s, color .15s; }
+    #abb-root .abb-btn.abb-gr {
+      font-family: Georgia, "Times New Roman", serif !important;
+      font-weight: 700; font-size: 17px; line-height: 1; padding-bottom: 3px;
+    }
+    #abb-root .abb-gr { opacity: .55; }
+    #abb-root .abb-gr.is-direct { opacity: 1; color: var(--brand) !important; border-color: var(--brand) !important; }
+
+    .abb-card.abb-open .abb-toggle { transform: rotate(90deg); }
+    .abb-panel {
+      display: none; width: 100%; margin-top: 12px; padding-top: 14px;
+      border-top: 1px solid var(--border); font-size: 13.5px; line-height: 1.6;
+    }
+    .abb-card.abb-open .abb-panel { display: block; }
+    .abb-panel .abb-desc { max-height: 240px; overflow-y: auto; padding-right: 6px; margin-bottom: 12px; }
+    .abb-panel-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+    .abb-more { margin-left: auto; font-size: 12px; color: var(--muted-foreground); }
+    .abb-more:hover { color: var(--brand); }
+    .abb-status { text-align: center; color: var(--muted-foreground); padding: 28px; font-size: 13px; }
+    .abb-status.is-action { cursor: pointer; color: var(--brand); }
+    .abb-sentinel { height: 1px; }
+    .abb-gr-badge { color: var(--brand); border-color: var(--brand-soft); }
+
+    /* ---- book page (/abss/) ---- */
+    body.abb-book .post, body.abb-book .commentZone {
+      width: auto !important; background: var(--card); border: 1px solid var(--border);
+      border-radius: 14px; padding: 28px 32px; margin: 0 0 20px;
+    }
+    body.abb-book .postTitle h1 { font-size: 22px; line-height: 1.3; margin: 0 0 16px; color: var(--foreground); }
+    body.abb-book .postInfo {
+      font-size: 13px; line-height: 2.3; color: var(--muted-foreground);
+      background: var(--secondary); border-radius: 10px; padding: 8px 14px; margin-bottom: 22px;
+    }
+    body.abb-book .postInfo a {
+      display: inline-block; background: var(--card); color: var(--brand); border: 1px solid var(--border);
+      border-radius: 999px; padding: 0 10px; margin: 0 2px; line-height: 1.9; font-size: 12px;
+    }
+    body.abb-book .postInfo a:hover { background: var(--brand-soft); }
+    body.abb-book .postInfo span[style] { margin-left: 16px !important; }
+    body.abb-book .postInfo h2 { display: inline; font: inherit; margin: 0; padding: 0; border: 0; }
+    body.abb-book .postContent {
+      display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 24px 28px; align-items: start;
+    }
+    body.abb-book .postContent > .center { grid-column: 1; text-align: center; }
+    body.abb-book .postContent > .center p { margin: 0 0 10px; font-size: 12.5px; color: var(--muted-foreground); }
+    body.abb-book .postContent > .center a { color: var(--brand); }
+    body.abb-book .postContent img[itemprop="image"] {
+      display: block; width: 100%; max-width: 250px; height: auto; margin: 0 auto; border-radius: 10px;
+    }
+    body.abb-book .postContent > .abb-desc { grid-column: 2; font-size: 14.5px; line-height: 1.65; }
+    body.abb-book .postContent > .abb-links, body.abb-book .postContent > .abb-torrent { grid-column: 1 / -1; }
+    body.abb-book .post, body.abb-book .postContent, body.abb-book .postTitle, body.abb-book .postInfo,
+    body.abb-book .postContent > *, body.abb-book .abb-desc, body.abb-book .abb-desc > *,
+    body.abb-book .abb-desc p, body.abb-book .abb-body, body.abb-book .abb-chips {
+      float: none !important; width: auto !important; max-width: none !important; min-width: 0 !important;
+      margin-left: 0 !important; margin-right: 0 !important;
+    }
+    body.abb-book .postContent > .abb-desc { grid-column: 2; justify-self: stretch; }
+
+    body.abb-book .abb-torrent {
+      width: 100%; border-collapse: collapse; font-size: 12.5px; border: 1px solid var(--border) !important;
+    }
+    body.abb-book .abb-torrent td {
+      border: 1px solid var(--border); padding: 6px 12px; width: auto !important;
+      word-break: break-all; color: var(--foreground);
+    }
+    body.abb-book .abb-torrent td:first-child:not([colspan]) { color: var(--muted-foreground); white-space: nowrap; }
+    body.abb-book .abb-torrent span { color: inherit !important; font: inherit !important; }
+    body.abb-book .abb-torrent a, body.abb-book .commentZone a { color: var(--brand); }
+    body.abb-book .commentZone h3 { font-size: 16px; margin: 0 0 12px; color: var(--foreground); }
+    body.abb-book .commentZone h3 small, body.abb-book .commentmetadata { color: var(--muted-foreground); font-weight: 400; }
+    body.abb-book .commentList { list-style: none; margin: 0 0 24px; padding: 0; }
+    body.abb-book .commentList > li { display: flex; gap: 12px; padding: 12px 0; border-top: 1px solid var(--border); background: none; }
+    body.abb-book .commentList .avatar { border-radius: 50%; }
+    body.abb-book .commentAuthor { font-weight: 600; }
+    body.abb-book .commentRight p { margin: 6px 0 0; }
+    body.abb-book #commentform input[type="text"], body.abb-book #commentform textarea {
+      background: var(--secondary); color: var(--foreground); border: 1px solid var(--input);
+      border-radius: 8px; padding: 8px 10px; font: inherit; font-size: 13px; outline: none;
+    }
+    body.abb-book #commentform input[type="text"] { width: 320px; }
+    body.abb-book #commentform textarea { width: 100%; max-width: 640px; }
+    body.abb-book #commentform input[type="submit"], body.abb-book #commentform #submit {
+      height: 36px !important; line-height: 34px !important; padding: 0 16px !important; width: auto !important;
+      background: var(--brand) !important; color: var(--background) !important; border: 0 !important;
+      border-radius: 8px !important; font: inherit !important; font-size: 13px !important; cursor: pointer;
+    }
+    body.abb-book .comment-rating { display: inline-block; vertical-align: middle; margin-right: 12px; }
+    body.abb-book #commentform label small { color: var(--muted-foreground); }
+
+    /* ---- generic main-template page (login, donate, advanced search, …) ---- */
+
+    body.abb-content #content { float: none !important; width: auto !important; margin: 0 !important; padding: 0 !important; }
+    .abb-page-card {
+      background: var(--card); border: 1px solid var(--border); border-radius: 14px;
+      padding: 28px 32px; margin-bottom: 20px; color: var(--foreground);
+      font-size: 14.5px; line-height: 1.6;
+    }
+    .abb-page-card h1, .abb-page-card h2, .abb-page-card h3 { color: var(--foreground); line-height: 1.3; margin: 0 0 14px; }
+    .abb-page-card h1 { font-size: 22px; } .abb-page-card h2 { font-size: 18px; } .abb-page-card h3 { font-size: 16px; }
+    .abb-page-card p { margin: 0 0 10px; }
+    .abb-page-card a { color: var(--brand); }
+    .abb-page-card hr { border: 0; border-top: 1px solid var(--border); margin: 16px 0; }
+    .abb-page-card img { max-width: 100%; height: auto; border-radius: 8px; }
+    .abb-page-card table { border-collapse: collapse; }
+    .abb-page-card td, .abb-page-card th { padding: 8px 10px; border: 0; vertical-align: middle; color: var(--foreground); }
+    .abb-page-card [bgcolor], .abb-page-card [style*="background"] { background: var(--secondary) !important; }
+    .abb-page-card input:not([type="submit"]):not([type="button"]):not([type="checkbox"]):not([type="radio"]),
+    .abb-page-card textarea, .abb-page-card select {
+      background: var(--secondary); color: var(--foreground); border: 1px solid var(--input);
+      border-radius: 8px; padding: 8px 10px; font: inherit; font-size: 13px; outline: none;
+    }
+    .abb-page-card input:focus-visible, .abb-page-card textarea:focus-visible { border-color: var(--ring); }
+    .abb-page-card input[type="submit"], .abb-page-card input[type="button"], .abb-page-card button {
+      background: var(--brand); color: var(--background); border: 0; border-radius: 8px;
+      padding: 9px 16px; font: inherit; font-size: 13px; cursor: pointer;
+    }
+    .abb-page-card h1, .abb-page-card h2, .abb-page-card h3 { font-family: inherit !important; }
+    .abb-page-card table, .abb-page-card td, .abb-page-card th { border: 0 !important; }
+    .abb-page-card input[type="submit"], .abb-page-card input[type="button"], .abb-page-card input[type="reset"],
+    .abb-page-card button {
+      background: var(--brand) !important; background-image: none !important; color: var(--background) !important;
+      border: 0 !important; border-radius: 8px !important; padding: 9px 16px !important; margin-right: 8px;
+    }
+    .abb-page-card input[type="reset"] { background: var(--secondary) !important; color: var(--foreground) !important; }
+    .abb-page-card input:-webkit-autofill, .abb-forum-body input:-webkit-autofill {
+      -webkit-box-shadow: 0 0 0 1000px var(--secondary) inset !important;
+      -webkit-text-fill-color: var(--foreground) !important;
+    }
+    .abb-wallets { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; margin-top: 16px; }
+    .abb-wallet {
+      background: var(--secondary); border: 1px solid var(--border); border-radius: 12px;
+      padding: 18px; text-align: center;
+    }
+    .abb-wallet img { display: block; width: 200px; max-width: 100%; height: auto; margin: 0 auto 12px; padding: 8px; background: #fff; border-radius: 10px; }
+    .abb-wallet h3 { margin: 0 0 8px; font-size: 16px; }
+    .abb-wallet code { display: block; font-size: 12px; line-height: 1.5; word-break: break-all; color: var(--muted-foreground); margin-bottom: 12px; }
+    .abb-wallet-actions { display: flex; gap: 8px; justify-content: center; }
+    .abb-page-card .abb-wallet-actions .abb-btn {
+      height: 32px; background: var(--secondary) !important; color: var(--foreground) !important;
+      border: 1px solid var(--border) !important; padding: 0 12px !important; margin: 0;
+    }
+    .abb-page-card .abb-wallet-actions .abb-btn:hover { background: var(--brand-soft) !important; color: var(--brand) !important; }
+
+    /* ---- forum (SMF 1.1, "Headline" theme) — recolour in place ---- */
+    html.abb-forum-html, body.abb-forum {
+      margin: 0 !important; padding: 0 !important;
+      background: var(--background) !important; background-image: none !important;
+    }
+    .abb-forum-body { color: var(--foreground); font-size: 14px; line-height: 1.5; }
+    .abb-forum-body :not(pre):not(code):not(.code):not(.abb-gr) {
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif !important;
+    }
+    .abb-forum-body, .abb-forum-body td, .abb-forum-body th, .abb-forum-body div, .abb-forum-body span,
+    .abb-forum-body li, .abb-forum-body label, .abb-forum-body b { color: var(--foreground) !important; font-size: 14px; }
+    .abb-forum-body a { color: var(--brand) !important; }
+    .abb-forum-body .smalltext, .abb-forum-body .smalltext * { color: var(--muted-foreground) !important; font-size: 12.5px !important; }
+    .abb-forum-body .middletext { font-size: 13px !important; }
+    .abb-forum-body .smalltext a { color: var(--brand) !important; }
+
+    /* every theme wrapper: no fixed width, no background sprites */
+    .abb-forum-body #wrapper, .abb-forum-body #header, .abb-forum-body #head-l, .abb-forum-body #head-r,
+    .abb-forum-body #headerarea, .abb-forum-body #bodyarea, .abb-forum-body #main, .abb-forum-body #upper_section,
+    .abb-forum-body #content_section, .abb-forum-body #main_content_section, .abb-forum-body .frame,
+    .abb-forum-body div:not(.tborder):not(.catbg):not(.titlebg):not(.windowbg):not(.windowbg2):not(.windowbg3):not(.quote):not(.code):not(.abb-forum-tools) {
+      width: auto !important; max-width: none !important; min-width: 0 !important;
+      background-color: transparent !important; background-image: none !important; box-shadow: none !important;
+    }
+    .abb-forum-body > table:first-of-type td { padding: 0 !important; }             /* the title strip */
+    .abb-forum-body h1.nav { font-size: 20px !important; margin: 4px 0 16px !important; }
+    .abb-forum-body h1.nav a { color: var(--foreground) !important; text-decoration: none; }
+
+    /* panels: .tborder is the card, table.bordercolor's background is the 1px grid line */
+    .abb-forum-body .tborder {
+      background: var(--card) !important; border: 1px solid var(--border) !important;
+      border-radius: 12px; overflow: hidden; margin: 0 0 16px !important;
+    }
+    .abb-forum-body table.bordercolor { background: var(--border) !important; margin-top: 0 !important; }
+    .abb-forum-body .windowbg, .abb-forum-body .windowbg2 { background: var(--card) !important; }
+    .abb-forum-body .windowbg3 { background: var(--secondary) !important; }
+    .abb-forum-body td { padding: 10px 12px !important; border: 0 !important; }
+    .abb-forum-body .catbg, .abb-forum-body .catbg2, .abb-forum-body .titlebg, .abb-forum-body .titlebg2 {
+      background: var(--secondary) !important; background-image: none !important; border: 0 !important;
+      color: var(--foreground) !important; font-weight: 600; padding: 10px 14px !important;
+    }
+    .abb-forum-body .catbg a, .abb-forum-body .titlebg a { color: var(--foreground) !important; text-decoration: none; }
+    .abb-forum-body td img { vertical-align: middle; }
+    .abb-forum-body td img[alt="No New Posts"] { opacity: .45; }
+
+    /* topics / posts */
+    .abb-forum-body .post, .abb-forum-body .signature { color: var(--foreground) !important; line-height: 1.6; }
+    .abb-forum-body .signature { color: var(--muted-foreground) !important; border-top: 1px solid var(--border); }
+    .abb-forum-body .quoteheader, .abb-forum-body .codeheader { color: var(--muted-foreground) !important; font-size: 12px !important; margin-top: 8px; }
+    .abb-forum-body .quote, .abb-forum-body .code {
+      background: var(--secondary) !important; color: var(--foreground) !important; border: 0 !important;
+      border-left: 3px solid var(--brand) !important; border-radius: 8px; padding: 10px 12px; margin: 4px 0 10px;
+    }
+    .abb-forum-body .code { font-family: ui-monospace, Menlo, Consolas, monospace !important; font-size: 12.5px; white-space: pre-wrap; }
+
+    /* our chip row (surviving SMF nav items) */
+    .abb-forum-tools { display: flex; gap: 8px; justify-content: flex-end; margin: -4px 0 14px; }
+    .abb-forum-body .abb-forum-tools .abb-btn {
+      display: inline-flex; align-items: center; height: 32px; padding: 0 12px !important;
+      background: var(--secondary) !important; color: var(--foreground) !important;
+      border: 1px solid var(--border) !important; border-radius: 8px !important;
+      font-size: 13px !important; text-decoration: none !important;
+    }
+    .abb-forum-body .abb-forum-tools .abb-btn:hover { background: var(--brand-soft) !important; color: var(--brand) !important; }
+
+    /* forms & buttons */
+    .abb-forum-body input:not([type="submit"]):not([type="button"]):not([type="checkbox"]):not([type="radio"]):not([type="image"]),
+    .abb-forum-body textarea, .abb-forum-body select {
+      background: var(--secondary) !important; color: var(--foreground) !important;
+      border: 1px solid var(--input) !important; border-radius: 8px; padding: 7px 10px; font-size: 13px; outline: none;
+    }
+    .abb-forum-body input[type="submit"], .abb-forum-body input[type="button"], .abb-forum-body button, .abb-forum-body .buttonlist a {
+      height: 32px !important; padding: 0 14px !important; background: var(--brand) !important; background-image: none !important;
+      color: var(--background) !important; border: 0 !important; border-radius: 8px !important;
+      font-size: 13px !important; cursor: pointer; text-shadow: none !important;
+    }
+
+    /* ---- any other page (login, forum, …): colours only ---- */
+    body.abb-page a { color: var(--brand); }
+   `;
+
+  // Injected at document-start, so the very first paint is already themed. We use our own <style>
+  // element rather than GM_addStyle so list mode can tell it apart from the site's stylesheets (D4).
+  const styleEl = document.createElement('style');
+  styleEl.id = 'abb-style';
+  styleEl.textContent = CSS;
+  (document.head || document.documentElement).appendChild(styleEl);
+  document.documentElement.classList.add('abb-boot');
+
+  /* =====================================================================
+     7. Parsing & detail helpers
+     ===================================================================== */
+  function findPosts(doc) {
+    for (const sel of ['.post', 'article', 'div[class*="post"]', '.entry']) {
+      const nodes = [...doc.querySelectorAll(sel)].filter(n =>
+        n.querySelector(POST_LINK_SEL) && n.querySelector('.postInfo, p'));
+      if (nodes.length) return nodes;
+    }
+    return [];
+  }
+
+  /* ---------- Goodreads resolver ---------- */
+  // Fallback when nothing is found: Google restricted to Goodreads.
+  const goodreadsSearchUrl = title => 'https://www.google.com/search?q=' +
+    encodeURIComponent('site:goodreads.com ' + title);
+
+  // Strip edition noise ABB uploaders add: [Unabridged], (MP3), 64 Kbps, "Book 3", …
+  const cleanTitle = t => t
+    .replace(/\[[^\]]*\]/g, ' ')
+    .replace(/\b(unabridged|abridged|audiobook|audio book|m4b|mp3|flac|\d+\s*kbps|narrated by.*$)\b/gi, ' ')
+    .replace(/\s+/g, ' ').trim();
+
+  // Progressively simpler queries: full → "title author" → bare title.
+  function goodreadsQueries(raw) {
+    const full = cleanTitle(raw);
+    const [titlePart, ...rest] = full.split(/\s+[-–—]\s+/);      // "Title - Author"
+    const author = rest.pop() || '';
+    const bare = titlePart.replace(/\s*[(:].*$/, '').trim();      // drop "(Series #12" / ": subtitle"
+    return [...new Set([full, `${bare} ${author}`.trim(), bare].filter(q => q.length > 2))];
+  }
+
+  /* --- cache: hits are permanent, misses expire, transient failures are never cached --- */
+  const GR_CACHE_KEY = 'abb-gr-cache-v4';   // v4 adds Goodreads' canonical title
+  const GR_MISS_TTL  = 24 * 3600 * 1000;
+  const GR_GAP       = 400;                        // ms between requests
+  const GR_BACKOFF   = [20, 45, 90, 180];          // seconds, per consecutive block
+  const grCache = GM_getValue(GR_CACHE_KEY, {});   // key → { url: string|null, t: ms }
+
+  let grSaveTimer = 0;
+  function saveGrCache() {                     // debounced: many lookups → one write
+    clearTimeout(grSaveTimer);
+    grSaveTimer = setTimeout(flushGrCache, 2000);
+  }
+  function flushGrCache() {
+    clearTimeout(grSaveTimer); grSaveTimer = 0;
+    const keys = Object.keys(grCache);
+    if (keys.length > 3000) keys.slice(0, keys.length - 3000).forEach(k => delete grCache[k]);
+    GM_setValue(GR_CACHE_KEY, grCache);
+  }
+  addEventListener('pagehide', flushGrCache);  // don't lose the last batch on navigation
+
+  const grCached = key => {                 // object = hit, null = recent miss, undefined = look it up
+    const e = grCache[key];
+    if (!e) return undefined;
+    if (e.url) return e;
+    return Date.now() - e.t < GR_MISS_TTL ? null : undefined;
+  };
+  const fmtCount = n => n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1000 ? (n / 1000).toFixed(n < 10000 ? 1 : 0) + 'k' : String(n);
+  GM_registerMenuCommand('Clear Goodreads cache', () => { GM_setValue(GR_CACHE_KEY, {}); location.reload(); });
+
+  class GrTransient extends Error {
+    constructor(msg, { blocked = false, backoff = 0 } = {}) { super(msg); this.blocked = blocked; this.backoff = backoff; }
+  }
+  const gmFetch = (url, headers = { Accept: 'application/json' }) => new Promise((resolve, reject) =>
+    GM_xmlhttpRequest({ method: 'GET', url, timeout: 20000, headers,
+      onload: resolve,
+      onerror:   () => reject(new GrTransient('network error', { backoff: 5000 })),
+      ontimeout: () => reject(new GrTransient('timeout',       { backoff: 5000 })) }));
+
+  // Goodreads' own search-box endpoint: small JSON, no HTML parsing, copes with the full ABB title.
+  async function goodreadsLookup(q) {
+    const r = await gmFetch('https://www.goodreads.com/book/auto_complete?format=json&q=' + encodeURIComponent(q));
+    if (r.status === 429 || r.status === 403) throw new GrTransient('blocked ' + r.status, { blocked: true });
+    if (r.status !== 200)                     throw new GrTransient('http ' + r.status, { backoff: 10000 });
+    let list;
+    try { list = JSON.parse(r.responseText); } catch { throw new GrTransient('not JSON (bot check?)', { blocked: true }); }
+    if (!Array.isArray(list)) throw new GrTransient('unexpected JSON', { backoff: 10000 });
+    if (!list.length) return null;
+    // Rank 1 is usually right, but self-published duplicates sometimes outrank the real edition.
+    // If rank 1 has almost no ratings, prefer a better-rated result with the same opening words.
+    const norm = s => (s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+    const ratings = b => Number(b.ratingsCount) || 0;
+    let best = list[0];
+    if (ratings(best) < 10) {
+      const stem = norm(best.bookTitleBare).split(' ').slice(0, 3).join(' ');
+      for (const b of list.slice(1, 5))
+        if (norm(b.bookTitleBare).startsWith(stem) && ratings(b) > ratings(best)) best = b;
+    }
+    return {
+      url: 'https://www.goodreads.com/book/show/' + best.bookId,
+      title: (best.bookTitleBare || '').replace(/\s+/g, ' ').trim(),
+      rating: parseFloat(best.avgRating) || 0,
+      count: Number(best.ratingsCount) || 0,
+      pages: Number(best.numPages) || 0,
+      series: (best.title.match(/\(([^()]*#[^()]*)\)\s*$/) || [])[1] || '',   // "Windy Peaks #1"
+      author: (best.author?.name || '').replace(/\s+/g, ' ').trim(),
+    };
+  }
+
+  // Only trust a Goodreads title for display if it visibly matches what the uploader wrote:
+  // ≥60% of its significant words appear in the ABB title, or the author's surname does plus one word.
+  const normT = s => (s || '').toLowerCase().replace(/[’'"]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
+  function grPlausible(abbTitle, info) {
+    if (!info.title) return false;
+    const a = normT(abbTitle);
+    const words = normT(info.title).split(' ').filter(w => w.length > 2);
+    const hits = words.filter(w => a.includes(w)).length;
+    const surname = normT(info.author).split(' ').pop();
+    return (words.length > 0 && hits / words.length >= 0.6) ||
+           (surname.length > 2 && a.includes(surname) && hits >= 1);
+  }
+
+  /* --- queue: one request at a time; a block pauses everything with growing backoff --- */
+  const grQueue = [];
+  let grBusy = false, grPausedUntil = 0, grBlockStreak = 0, grTimer = 0;
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  const grBroadcast = msg => grQueue.forEach(j => j.onState?.(msg));
+
+  function resolveGoodreads(title, onDone, onState, priority = false) {
+    const key = title.toLowerCase();
+    const hit = grCached(key);
+    if (hit !== undefined) { if (hit) onDone(hit); else onState?.('Not on Goodreads — opens a Google search'); return; }
+    const job = { key, title, onDone, onState, tries: 0 };
+    priority ? grQueue.unshift(job) : grQueue.push(job);
+    onState?.('Goodreads: queued…');
+    grPump();
+  }
+
+  async function grPump() {
+    if (grBusy || grTimer || !grQueue.length) return;
+    const wait = grPausedUntil - Date.now();
+    if (wait > 0) {
+      grBroadcast(`Goodreads paused (rate limited) — retrying in ${Math.ceil(wait / 1000)} s`);
+      grTimer = setTimeout(() => { grTimer = 0; grPump(); }, Math.min(wait, 5000) + 50);
+      return;
+    }
+    grBusy = true;
+    const job = grQueue.shift();
+    job.onState?.('Goodreads: searching…');
+    try {
+      let info = null;
+      for (const q of goodreadsQueries(job.title)) {
+        info = await goodreadsLookup(q);
+        console.debug('[ABB] goodreads', JSON.stringify(q), '→', info?.url || 'no match');
+        if (info) break;
+        await sleep(GR_GAP);
+      }
+      grBlockStreak = 0;
+      grCache[job.key] = { ...(info || { url: null }), t: Date.now() };
+      saveGrCache();
+      if (info) job.onDone(grCache[job.key]); else job.onState?.('Not on Goodreads — opens a Google search');
+    } catch (err) {
+      console.warn('[ABB] goodreads:', job.title, '—', err.message);
+      if (err.blocked) {
+        // Site-wide throttle, not this book's fault: pause, keep the job at the front, don't burn a try.
+        grPausedUntil = Date.now() + GR_BACKOFF[Math.min(grBlockStreak++, GR_BACKOFF.length - 1)] * 1000;
+        grQueue.unshift(job);
+      } else {
+        if (err.backoff) grPausedUntil = Date.now() + err.backoff;
+        if (++job.tries < 3) grQueue.unshift(job);
+        else job.onState?.('Goodreads lookup failed — opens a Google search');
+      }
+    }
+    await sleep(GR_GAP);
+    grBusy = false;
+    grPump();
+  }
+
+  // Wire a card/page button: fallback link now, direct link when resolved.
+  function attachGoodreads(anchor, title, { onInfo, onMiss } = {}) {
+    anchor.href = goodreadsSearchUrl(cleanTitle(title));
+    anchor.title = 'Goodreads (not looked up yet)';
+    const done = info => {
+      anchor.href = info.url;
+      anchor.title = `Open on Goodreads — ★ ${info.rating.toFixed(2)} (${fmtCount(info.count)} ratings)`;
+      anchor.classList.add('is-direct');
+      onInfo?.(info);
+    };
+    const state = msg => { anchor.title = msg; if (/^Not on Goodreads|failed/.test(msg)) onMiss?.(); };
+    const hit = grCached(title.toLowerCase());
+    if (hit) { done(hit); return; }
+    let queued = false;
+    const kick = priority => { if (!queued) { queued = true; grVisible.unobserve(anchor); resolveGoodreads(title, done, state, priority); } };
+    anchor.addEventListener('mouseenter', () => kick(true), { once: true });
+    anchor._grKick = kick;
+    grVisible.observe(anchor);
+  }
+  // Toolbar filter options. c = card.dataset (gr: pending | ok | miss)
+  const GR_FILTERS = [
+    ['r45',  '★ 4.5 and up',          c => c.gr === 'ok' && +c.grRating >= 4.5],
+    ['r40',  '★ 4.0 and up',          c => c.gr === 'ok' && +c.grRating >= 4.0],
+    ['r35',  '★ 3.5 and up',          c => c.gr === 'ok' && +c.grRating >= 3.5],
+    ['n1k',  '1k+ ratings',           c => c.gr === 'ok' && +c.grCount >= 1000],
+    ['n10k', '10k+ ratings',          c => c.gr === 'ok' && +c.grCount >= 10000],
+    ['new',  'Under 100 ratings',     c => c.gr === 'ok' && +c.grCount < 100],
+    ['miss', 'Not found on Goodreads', c => c.gr === 'miss'],
+  ];
+  const GR_TEST = Object.fromEntries(GR_FILTERS.map(([k, , t]) => [k, t]));
+  const grVisible = new IntersectionObserver(entries =>
+    entries.forEach(e => e.isIntersecting && e.target._grKick?.(false)), { rootMargin: '300px 0px' });
+
+  // "434.01 MBs" / "1.2 GB" → megabytes
+  const sizeMb = s => {
+    const m = (s || '').match(/([0-9.]+)\s*([KMGT])?/i);
+    return m ? parseFloat(m[1]) * ({ K: 1 / 1024, M: 1, G: 1024, T: 1048576 }[(m[2] || 'M').toUpperCase()] || 1) : 0;
+  };
+
+  function parseCard(post) {
+    const link = post.querySelector(POST_LINK_SEL);
+    const text = post.textContent.replace(/\s+/g, ' ');
+    const grab = re => (text.match(re) || [])[1] || '';
+    const catLinks = [...post.querySelectorAll('.postInfo a[href*="/type/"]')];
+    return {
+      title: link ? strip(link.textContent) : '',
+      url: link?.href || '',
+      img: post.querySelector('img')?.src || '',
+      categories: catLinks.map(a => strip(a.textContent)).filter(Boolean),
+      catSlugs: catLinks.map(a => (a.getAttribute('href').match(/\/type\/([^/]+)/) || [])[1]).filter(Boolean),
+      format: grab(/Format:\s*([A-Za-z0-9]+)/i).toLowerCase(),
+      bitrate: grab(/Bitrate:\s*([0-9]+\s*[KkMm]?bps|\?+)/i),
+      kbps: (m => m ? Math.round(parseFloat(m[1]) * (/m/i.test(m[2]) ? 1000 : 1)) : 0)
+            (grab(/Bitrate:\s*([0-9.]+\s*[KkMm]?bps)/i).match(/([0-9.]+)\s*([KkMm]?)/)),
+      size: grab(/File Size:\s*([0-9.]+\s*[KMGTP]?i?[Bb])/),
+      mb: sizeMb(grab(/File Size:\s*([0-9.]+\s*[KMGT])/i)),
+      language: grab(/Language:\s*([A-Za-z&'\- ]+?)(?:\s*Keywords|$)/i).trim(),
+      posted: grab(/Posted:\s*([0-9]{1,2} \w{3,9} [0-9]{4})/),
+    };
+  }
+
+  const ALLOWED_TAGS = new Set(['P', 'BR', 'B', 'STRONG', 'I', 'EM', 'U', 'UL', 'OL', 'LI', 'A', 'SPAN']);
+
+  // Copy a node keeping only basic formatting tags.
+  function sanitizeNode(node, base, newTab) {
+    const out = el('div');
+    (function walk(src, dst) {
+      for (const child of src.childNodes) {
+        if (child.nodeType === Node.TEXT_NODE) {
+          dst.appendChild(document.createTextNode(child.textContent));
+        } else if (child.nodeType === Node.ELEMENT_NODE && ALLOWED_TAGS.has(child.tagName)) {
+          const copy = el(child.tagName.toLowerCase());
+          if (child.tagName === 'A') {
+            copy.href = abs(child.getAttribute('href') || '#', base);
+            if (newTab) copy.target = '_blank';
+          }
+          walk(child, copy);
+          dst.appendChild(copy);
+        }
+      }
+    })(node, out);
+    return out;
+  }
+
+  const CHIP_LABEL = {
+    series: '📚 Series', length: '⏱ Length', runtime: '⏱ Runtime', duration: '⏱ Duration',
+    language: '🌐 Language', 'release date': '📅 Released', publisher: '🏢 Publisher',
+  };
+  const COMPACT_CHIPS = new Set(['series', 'length', 'runtime', 'duration', 'language']);
+  const LABEL_RE = new RegExp('^(' + [
+    'series', 'release date', 'language', 'format', 'length', 'publisher', 'categories',
+    'category', 'narrated by', 'by', 'author', 'runtime', 'duration', 'narrator',
+  ].join('|') + ')\\b\\s*:?\\s*(.*)$', 'i');
+  const splitSegs = p => p.innerHTML.split(/<br\s*\/?>/i);
+
+  // Description element: chips (credits, series, length…) on top, cleaned prose below.
+  // `full` keeps more label lines as chips (book page); compact mode chips only the essentials.
+  function buildDescription(source, base, { newTab = true, full = false } = {}) {
+    const wrap = el('div', 'abb-desc');
+    const clean = sanitizeNode(source, base, newTab);
+    const chips = [];
+    const chipFor = label => ((full ? label in CHIP_LABEL : COMPACT_CHIPS.has(label)) ? CHIP_LABEL[label] : null);
+
+    const written   = [...source.querySelectorAll('a .author')].map(s => s.textContent.trim());
+    const narrators = [...source.querySelectorAll('a .narrator')].map(s => s.textContent.trim());
+    if (written.length)   chips.push(['✍ Written by', written.join(', ')]);
+    if (narrators.length) chips.push(['🎙 Read by', narrators.join(', ')]);
+    const abr = source.querySelector('.is_abridged')?.textContent.trim();
+    if (full && abr) chips.push(['📖 ' + abr[0].toUpperCase() + abr.slice(1).toLowerCase(), '']);
+
+    // Flatten every <br>-separated line of every paragraph into one stream
+    const lines = [];
+    clean.querySelectorAll('p').forEach((p, pi) =>
+      splitSegs(p).forEach((seg, si) => {
+        const text = strip(seg);
+        if (text) lines.push({ pi, si, text });
+      }));
+
+    const drop = new Set(); // "pi:si" of segments to remove
+    for (let i = 0; i < lines.length; i++) {
+      const L = lines[i], key = `${L.pi}:${L.si}`;
+      // Credit/spec lines already shown as badges or chips
+      if (/^(written|read)\s+by\b/i.test(L.text) || /^(format|bitrate)\s*:/i.test(L.text) ||
+          /^(un)?abridged$/i.test(L.text) ||
+          (/^(by|narrated by)\b\s*:?/i.test(L.text) && L.text.length < 100)) {
+        drop.add(key);
+        continue;
+      }
+      const m = L.text.match(LABEL_RE);
+      if (!m) continue; // ordinary prose
+      const label = m[1].toLowerCase().trim(), value = m[2].trim(), chip = chipFor(label);
+      if (value && value.length < 80) {
+        drop.add(key);
+        if (chip) chips.push([chip, value]);
+      } else if (!value) {
+        // bare label → value may be on the next line
+        const nxt = lines[i + 1];
+        if (nxt && nxt.text.length < 80 && !LABEL_RE.test(nxt.text)) {
+          drop.add(key);
+          drop.add(`${nxt.pi}:${nxt.si}`);
+          if (chip) chips.push([chip, nxt.text]);
+          i++;
+        }
+      }
+      // long value → real content, left in place
+    }
+
+    clean.querySelectorAll('p').forEach((p, pi) => {
+      const kept = splitSegs(p).filter((seg, si) => !drop.has(`${pi}:${si}`) && strip(seg));
+      if (kept.length) p.innerHTML = kept.join('<br>'); else p.remove();
+    });
+
+    if (chips.length) {
+      const row = el('div', 'abb-chips');
+      chips.forEach(([label, value]) => row.appendChild(el('span', 'abb-chip', value ? `${label}: ${value}` : label)));
+      wrap.appendChild(row);
+    }
+    const body = el('div', 'abb-body');
+    body.append(...clean.childNodes);
+    wrap.appendChild(body);
+    return wrap;
+  }
+
+  // .torrent / magnet links from a detail page; builds a magnet from the info-hash table if none exists.
+  function collectLinks(scope, html, base) {
+    const links = new Map(); // href → label
+    const add = (href, label) => { if (href && !links.has(href)) links.set(href, label); };
+
+    scope.querySelectorAll('a[href]').forEach(a => {
+      const h = a.getAttribute('href');
+      if (h.startsWith('magnet:')) add(h, '🧲 Magnet');
+      else if (/\.torrent(\?|$)|download\.php|\/downld/i.test(h)) add(abs(h, base), '⬇ Torrent');
+    });
+    const inline = html.match(/magnet:\?xt=urn:btih:[A-Za-z0-9]+[^"'\s<>]*/);
+    if (inline) add(inline[0], '🧲 Magnet');
+
+    if (![...links.keys()].some(h => h.startsWith('magnet:'))) {
+      const cellsAfter = re => [...scope.querySelectorAll('td')]
+        .filter(td => re.test(td.textContent.trim()))
+        .map(td => td.nextElementSibling?.textContent.trim()).filter(Boolean);
+      const [hash] = cellsAfter(/^info hash:?$/i);
+      if (/^[a-f0-9]{40}$/i.test(hash || '')) {
+        const name = scope.querySelector('h1[itemprop="name"], .postTitle h1')?.textContent.trim() || '';
+        const trackers = [...new Set(cellsAfter(/^(announce url|tracker):?$/i))]
+          .map(t => '&tr=' + encodeURIComponent(t)).join('');
+        add(`magnet:?xt=urn:btih:${hash}&dn=${encodeURIComponent(name)}${trackers}`, '🧲 Magnet');
+      }
+    }
+    return links;
+  }
+
+  function linksRow(links) {
+    const row = el('div', 'abb-links');
+    if (!links.size) row.appendChild(el('span', 'abb-note', 'No download links found.'));
+    links.forEach((label, href) => {
+      const a = el('a', 'abb-dl', label);
+      a.href = href;
+      row.appendChild(a);
+    });
+    return row;
+  }
+
+  async function fetchDoc(url) {
+    const res = await fetch(url, { credentials: 'omit' });
+    const html = await res.text();
+    return { res, html, doc: new DOMParser().parseFromString(html, 'text/html') };
+  }
+
+  // Only the full book page has a date; fetch it on demand (once per book) when a card is expanded.
+  async function goodreadsPublished(title) {
+    const key = title.toLowerCase(), e = grCache[key];
+    if (!e?.url) return '';
+    if (e.pub !== undefined) return e.pub;
+    try {
+      const r = await gmFetch(e.url, { Accept: 'text/html' });
+      const m = r.responseText.match(/First published\s+([A-Z][a-z]+ \d{1,2}, \d{4})/) ||
+                r.responseText.match(/Published\s+([A-Z][a-z]+ \d{1,2}, \d{4})/);
+      e.pub = m ? m[1] : '';
+    } catch { return ''; }        // transient: leave undefined so it's retried next time
+    saveGrCache();
+    return e.pub;
+  }
+
+  /* =====================================================================
+     8. Shared header: logo · nav · expanding search · theme picker
+     ===================================================================== */
+  function buildHeader() {
+    const header = el('header', 'abb-header');
+    header.innerHTML = `
+      <a class="abb-logo" href="/"><h1>📚 AudioBook Bay</h1></a>
+      <nav class="abb-nav">
+        ${NAV_LINKS.map(([label, href, title]) => `<a href="${href}" title="${esc(title)}">${label}</a>`).join('')}
+        <form class="abb-search" method="get" action="/">
+          <a class="abb-adv" href="/member/advanced_search" title="Advanced search">Advanced →</a>
+          <input class="abb-input" type="search" name="s" maxlength="50" placeholder="Search AudioBook Bay…" autocomplete="off">
+          <button type="button" class="abb-btn abb-icon" title="Search" aria-label="Search">${ICON_SEARCH}</button>
+        </form>
+        <div class="abb-theme">
+          <button type="button" class="abb-btn abb-icon abb-theme-btn" title="Theme">🎨<span></span></button>
+          <div class="abb-pop abb-theme-pop"></div>
+        </div>
+      </nav>`;
+    wireSearch(header);
+    wireThemePicker(header);
+    return header;
+  }
+
+  function wireSearch(header) {
+    const form = header.querySelector('.abb-search');
+    const input = form.querySelector('input');
+    const adv = form.querySelector('.abb-adv');
+    const btn = form.querySelector('button');
+    const setOpen = open => {
+      header.classList.toggle('abb-search-open', open);
+      input.tabIndex = adv.tabIndex = open ? 0 : -1;
+      if (open) input.focus();
+    };
+    setOpen(false);
+    btn.addEventListener('click', () => {
+      const open = header.classList.contains('abb-search-open');
+      if (open && input.value.trim()) form.requestSubmit();
+      else setOpen(!open);
+    });
+    form.addEventListener('submit', e => { if (!input.value.trim()) e.preventDefault(); });
+    dismissOnOutside(form, () => setOpen(false));
+  }
+
+  function wireThemePicker(header) {
+    const wrap = header.querySelector('.abb-theme');
+    const btn = wrap.querySelector('.abb-theme-btn');
+    const label = btn.querySelector('span');
+    const pop = wrap.querySelector('.abb-theme-pop');
+
+    const sync = () => {
+      label.textContent = schemeLabel(settings.theme);
+      btn.title = 'Theme · ' + label.textContent;
+      pop.querySelectorAll('.abb-swatch').forEach(sw =>
+        sw.classList.toggle('is-active', sw.dataset.scheme === settings.theme));
+    };
+
+    for (const kind of ['dark', 'light']) {
+      pop.appendChild(el('div', 'abb-pop-title', `${kind} themes`));
+      const grid = el('div', 'abb-swatches');
+      schemesByKind(kind).forEach(k => {
+        const s = SCHEMES[k];
+        const sw = el('button', 'abb-swatch', schemeLabel(k));
+        sw.type = 'button';
+        sw.dataset.scheme = k;
+        sw.style.background = s.card;   // per-scheme preview colours (legitimately dynamic)
+        sw.style.color = s.fg;
+        sw.addEventListener('click', () => { setTheme(k); sync(); wrap.classList.remove('is-open'); });
+        grid.appendChild(sw);
+      });
+      pop.appendChild(grid);
+    }
+    sync();
+    btn.addEventListener('click', () => wrap.classList.toggle('is-open'));
+    dismissOnOutside(wrap, () => wrap.classList.remove('is-open'));
+  }
+
+  /* =====================================================================
+     9. List mode (home, categories, tags, search results)
+     ===================================================================== */
+  function initListMode() {
+    document.body.classList.add('abb-list');
+    // Everything visible on a list page is ours — the site's stylesheets are dead weight here.
+    document.querySelectorAll('link[rel~="stylesheet"], style:not(#abb-style)').forEach(n => n.remove());
+    const root = el('div');
+    root.id = 'abb-root';
+    const toolbar = el('div', 'abb-toolbar');
+    toolbar.innerHTML = `
+      <input class="abb-input" type="search" id="abb-q" placeholder="Filter loaded titles… (Enter = site search)">
+      <select class="abb-input" id="abb-cat"></select>
+      <select class="abb-input" id="abb-lang"></select>
+      <select class="abb-input" id="abb-fmt"></select>
+      <select class="abb-input" id="abb-bit"></select>
+      <select class="abb-input" id="abb-gr"></select>
+      <select class="abb-input" id="abb-sort"></select>
+      <label class="abb-switch"><input type="checkbox" id="abb-inf"> ∞ Scroll</label>
+      <label class="abb-switch"><input type="checkbox" id="abb-grt"> GR titles</label>
+      <span class="abb-count"></span>`;
+    const grid = el('div');
+    grid.id = 'abb-grid';
+    const statusEl = el('div', 'abb-status');
+    const sentinel = el('div', 'abb-sentinel');
+    root.append(buildHeader(), toolbar, grid, statusEl, sentinel);
+    document.body.appendChild(root);
+
+    const $ = s => root.querySelector(s);
+    const qInput = $('#abb-q'), catSel = $('#abb-cat'), langSel = $('#abb-lang'),
+          fmtSel = $('#abb-fmt'), bitSel = $('#abb-bit'), infChk = $('#abb-inf'),
+          countEl = $('.abb-count'),grSel = $('#abb-gr'),grtChk = $('#abb-grt'),
+          sortSel = $('#abb-sort');
+
+    /* --- Hybrid (client-side) filters: ride along in sessionStorage between pages --- */
+    const hyb = {
+      lang: urlLang ? '' : (session.get('lang') || ''),
+      cat:  urlCat  ? '' : (session.get('cat')  || ''),
+    };
+    const setHyb = (k, v) => { hyb[k] = v; session.set(k, v); };
+    if (urlLang) session.set('lang', ''); // a built-in URL filter supersedes the hybrid one
+    if (urlCat)  session.set('cat', '');
+    const hybridActive = () => Boolean(hyb.lang || hyb.cat);
+
+    /* --- Dropdowns --- */
+    function fillSelect(sel, anyLabel, options, selected) {
+      sel.replaceChildren(new Option(anyLabel, 'any'),
+        ...options.map(([value, label]) => new Option(label, value)));
+      sel.value = [...sel.options].some(o => o.value === selected) ? selected : 'any';
+    }
+    fillSelect(catSel, 'Category · any',
+      CATEGORIES.map(([n, s]) => ['cat:' + s, 'Category · ' + n]),
+      'cat:' + (urlCat || hyb.cat));
+    fillSelect(langSel, 'Language · any',
+      LANGUAGES.map(l => ['lang:' + l, 'Language · ' + l[0].toUpperCase() + l.slice(1)]),
+      'lang:' + (urlLang || hyb.lang));
+    fillSelect(fmtSel, 'Format · any',
+      FORMATS.map(([f, l]) => ['fmt:' + f, 'Format · ' + l]), 'any');
+    fillSelect(bitSel, 'Bitrate · any',
+      BITRATES.map(([k, l]) => ['bit:' + k, 'Bitrate · ' + l]), 'any');
+    fillSelect(grSel, 'Goodreads · any', GR_FILTERS.map(([k, l]) => ['gr:' + k, 'Goodreads · ' + l]), 'any');
+
+    // Client-only filters: hide/show, then let the pump top up if the sentinel is now visible
+    const localFilter = () => { applyFilters(); pump(); };
+    fmtSel.addEventListener('change', localFilter);
+    bitSel.addEventListener('change', localFilter);
+    grSel.addEventListener('change', localFilter);
+    // Anything that needs Goodreads data for cards the reader hasn't reached: a GR filter or a GR sort
+    function sortsByGoodreads() { return /^(rating|count)$/.test(sortSel.value); }
+    function wantsGoodreads()   { return grSel.value !== 'any' || sortsByGoodreads(); }
+    function pendingGoodreads() { return grid.querySelectorAll('.abb-card[data-gr="pending"]').length; }
+    function kickPendingGoodreads() {
+      grid.querySelectorAll('.abb-card[data-gr="pending"] .abb-gr').forEach(a => a._grKick?.(false));
+    }
+    // A card that resolves (or misses) may now pass/fail the GR filter, or belong elsewhere in a GR sort
+    grid.addEventListener('abb:goodreads', () => {
+      if (grSel.value !== 'any') localFilter();
+      if (sortsByGoodreads()) scheduleSort();
+    });
+
+    const refilter = () => { applyFilters(); burst = 0; burstPaused = false; pump(); };
+    const goTo = href => { location.href = href; };
+
+    // Which archive to read from, and which dimension becomes a client-side filter.
+    // Non-English language archives are far smaller than category archives, so when both
+    // are set we read the language archive and filter by category — not the other way round.
+    function chooseArchive(cat, lang) {
+      const byLang = lang && (!cat || lang !== 'english');
+      const path = byLang ? `/audio-books/tag/${lang}/` : cat ? `/audio-books/type/${cat}/` : '/';
+      const next = { cat: byLang ? cat : '', lang: byLang ? '' : lang };
+      session.set('cat', next.cat);
+      session.set('lang', next.lang);
+      if (path === location.pathname) { Object.assign(hyb, next); refilter(); }
+      else location.href = path;
+    }
+    catSel.addEventListener('change', () => {
+      const cat = catSel.value === 'any' ? '' : catSel.value.slice(4);
+      if (isSearch) { setHyb('cat', cat); refilter(); return; }
+      chooseArchive(cat, urlLang || hyb.lang);
+    });
+    langSel.addEventListener('change', () => {
+      const lang = langSel.value === 'any' ? '' : langSel.value.slice(5);
+      if (isSearch) { setHyb('lang', lang); refilter(); return; }
+      chooseArchive(urlCat || hyb.cat, lang);
+    });
+
+    qInput.addEventListener('input', applyFilters);
+    qInput.addEventListener('keydown', e => {
+      if (e.key === 'Enter' && qInput.value.trim()) goTo('/?s=' + encodeURIComponent(qInput.value.trim()));
+    });
+
+    infChk.checked = settings.infinite;
+    infChk.addEventListener('change', () => { setting('infinite', infChk.checked); pump(); });
+
+    grtChk.checked = settings.grTitles;
+    grtChk.addEventListener('change', () => {
+      setting('grTitles', grtChk.checked);
+      grid.querySelectorAll('.abb-card').forEach(renderTitle);
+      if (sortSel.value === 'title') applySort();
+    });
+
+    /* --- Sort --- */
+    const SORTS = [
+      ['posted', 'Sort · newest first'],
+      ['rating', 'Sort · Goodreads rating'],
+      ['count',  'Sort · most rated'],
+      ['size',   'Sort · largest file'],
+      ['title',  'Sort · title A–Z'],
+    ];
+    const displayedTitle = c => (grtChk.checked && c.dataset.grSure === '1' ? c.dataset.grTitle : c.dataset.abbTitle) || '';
+    const SORT_KEY = {                     // smaller sorts first; unresolved GR data sinks to the bottom
+      posted: c => +c.dataset.order,
+      rating: c => -(+c.dataset.grRating || 0),
+      count:  c => -(+c.dataset.grCount  || 0),
+      size:   c => -(+c.dataset.mb || 0),
+      title:  c => displayedTitle(c).toLowerCase().replace(/^(the|an?)\s+/, ''),
+    };
+    sortSel.replaceChildren(...SORTS.map(([k, l]) => new Option(l, k)));
+    sortSel.value = SORTS.some(([k]) => k === settings.sort) ? settings.sort : 'posted';
+
+    function applySort() {
+      const key = SORT_KEY[sortSel.value] || SORT_KEY.posted;
+      [...grid.children]
+        .sort((a, b) => { const x = key(a), y = key(b); return x < y ? -1 : x > y ? 1 : +a.dataset.order - +b.dataset.order; })
+        .forEach(c => grid.appendChild(c));
+    }
+    // Goodreads results arrive about one a second; batch the re-sorts so cards don't hop under the cursor
+    let sortTimer = 0;
+    function scheduleSort() { clearTimeout(sortTimer); sortTimer = setTimeout(applySort, 500); }
+    sortSel.addEventListener('change', () => {
+      setting('sort', sortSel.value);
+      applySort();
+      if (sortsByGoodreads()) { kickPendingGoodreads(); applyFilters(); }
+    });
+
+    // Show Goodreads' canonical title (+ author) when we have a confident match and the toggle is on.
+    function renderTitle(card) {
+      const a = card.querySelector('.abb-title');
+      const useGr = grtChk.checked && card.dataset.grSure === '1';
+      a.textContent = useGr ? card.dataset.grTitle : card.dataset.abbTitle;
+      if (useGr && card.dataset.grAuthor) a.insertAdjacentHTML('beforeend', ` <span class="abb-by">· ${esc(card.dataset.grAuthor)}</span>`);
+      a.title = useGr ? `ABB title: ${card.dataset.abbTitle}` : '';
+    }
+
+    /* --- Cards --- */
+    const badge = (t, cls = '') => (t ? `<span class="abb-badge ${cls}">${esc(t)}</span>` : '');
+    let cardSeq = 0;
+
+    function makeCard(d) {
+      const card = el('div', 'abb-card');
+      Object.assign(card.dataset, {
+        title: d.title.toLowerCase(), format: d.format,
+        lang: d.language.toLowerCase(), cats: d.catSlugs.join(' '),
+        kbps: String(d.kbps),
+        gr: 'pending',
+        abbTitle: d.title,
+        order: cardSeq++,
+        mb: String(d.mb)
+      });
+      card.innerHTML = `
+        <div class="abb-row">
+          ${d.img ? `<img class="abb-cover" src="${esc(d.img)}" alt="" loading="lazy" decoding="async">` : ''}
+          <div class="abb-main">
+            <a class="abb-title" href="${esc(d.url)}">${esc(d.title)}</a>
+            <div class="abb-badges">${d.categories.map(c => badge(c, 'abb-cat')).join('')}${badge(d.format.toUpperCase())}${badge(d.bitrate)}${badge(d.size)}${badge(d.language)}${badge(d.posted)}</div>
+          </div>
+          <div class="abb-actions">
+            <a class="abb-btn abb-icon abb-gr" target="_blank" rel="noopener">g</a>
+            <button type="button" class="abb-btn abb-icon abb-toggle" title="Show details" aria-expanded="false">▶</button>
+          </div>
+        </div>
+        <div class="abb-panel"></div>`;
+      card.querySelector('.abb-cover')?.addEventListener('error', e => e.target.remove());
+      card.querySelector('.abb-toggle').addEventListener('click', e => {
+        const open = card.classList.toggle('abb-open');
+        e.currentTarget.setAttribute('aria-expanded', open);
+        if (open && !card.dataset.loaded) {
+          card.dataset.loaded = '1';
+          loadDetails(card, d.url);
+          goodreadsPublished(d.title).then(pub => pub &&
+            card.querySelector('.abb-badges').insertAdjacentHTML('beforeend', badge('First published ' + pub, 'abb-gr-badge')));
+        }
+      });
+      const grDone = () => card.dispatchEvent(new CustomEvent('abb:goodreads', { bubbles: true }));
+      attachGoodreads(card.querySelector('.abb-gr'), d.title, {
+        onInfo: info => {
+          Object.assign(card.dataset, {
+            gr: 'ok', grRating: info.rating, grCount: info.count,
+            grTitle: info.title, grAuthor: info.author, grSure: grPlausible(d.title, info) ? '1' : '',
+            title: `${d.title} ${info.title} ${info.author}`.toLowerCase(),   // text filter matches either title
+          });
+          renderTitle(card);
+          card.querySelector('.abb-badges').insertAdjacentHTML('beforeend',
+            badge(`★ ${info.rating.toFixed(2)} · ${fmtCount(info.count)}`, 'abb-gr-badge') +
+            (info.series ? badge(info.series, 'abb-gr-badge') : ''));
+          grDone();
+        },
+        onMiss: () => { card.dataset.gr = 'miss'; grDone(); },
+      });
+      return card;
+    }
+
+  // Abridged/Unabridged lives only in the full description, which list pages don't carry,
+  // so it can be badged only once a card's book page has been fetched.
+  function markAbridged(card, doc) {
+    if (card.dataset.abridged !== undefined) return;
+    const raw = doc.querySelector('.is_abridged')?.textContent.trim() || '';
+    const val = raw ? raw[0].toUpperCase() + raw.slice(1).toLowerCase() : '';
+    card.dataset.abridged = val;
+    if (val) card.querySelector('.abb-badges').insertAdjacentHTML('beforeend', badge(val));
+  }
+
+    async function loadDetails(card, url) {
+      const panel = card.querySelector('.abb-panel');
+      panel.textContent = 'Loading details…';
+      try {
+        const { res, html, doc } = await fetchDoc(url);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        markAbridged(card, doc);
+        const src = doc.querySelector('.desc[itemprop="description"]');
+        const desc = src ? buildDescription(src, url) : el('div', 'abb-desc');
+        if (!src) desc.innerHTML = '<em>No description found on the detail page.</em>';
+        const more = el('a', 'abb-more', 'Full page ↗');
+        more.href = url;
+        const foot = el('div', 'abb-panel-foot');
+        foot.append(linksRow(collectLinks(doc, html, url)), more);
+        panel.replaceChildren(desc, foot);
+      } catch (err) {
+        console.warn('[ABB] details:', err);
+        panel.textContent = 'Could not load details — close and reopen to retry.';
+        delete card.dataset.loaded;
+      }
+    }
+
+    const knownUrls = new Set();
+    function addCardsFrom(doc) {
+      let added = 0;
+      findPosts(doc).forEach(post => {
+        const d = parseCard(post);
+        if (!d.title || !d.url || knownUrls.has(d.url)) return;
+        knownUrls.add(d.url);
+        grid.appendChild(makeCard(d));
+        added++;
+      });
+      if (added && sortSel.value !== 'posted') applySort();
+      return added;
+    }
+
+    /* --- Filtering: title + format always; hybrid lang/cat when set --- */
+    function applyFilters() {
+      const q = qInput.value.trim().toLowerCase();
+      const fmt = fmtSel.value === 'any' ? '' : fmtSel.value.slice(4);
+      const bit = bitSel.value === 'any' ? null : BITRATE_TEST[bitSel.value.slice(4)];
+      const gr = grSel.value === 'any' ? null : GR_TEST[grSel.value.slice(3)];
+      const cards = [...grid.children];
+      let visible = 0;
+      cards.forEach(c => {
+      const ok = (!q || c.dataset.title.includes(q)) &&
+        (!fmt || (fmt === 'other' ? !KNOWN_FORMATS.includes(c.dataset.format) : c.dataset.format === fmt)) &&
+        (!bit || bit(Number(c.dataset.kbps))) &&
+        (!gr || gr(c.dataset)) &&
+        (!hyb.lang || c.dataset.lang === hyb.lang) &&
+        (!hyb.cat || c.dataset.cats.split(' ').includes(hyb.cat));
+        c.style.display = ok ? '' : 'none';
+        if (ok) visible++;
+      });
+
+      if (wantsGoodreads()) kickPendingGoodreads();
+      countEl.textContent = `${visible} shown / ${cards.length} total`;
+      const pending = wantsGoodreads() ? pendingGoodreads() : 0;
+      if (pending) countEl.textContent += ` · ${pending} awaiting Goodreads`;
+    }
+
+    /* --- Infinite scroll --- */
+    // Next page: real pagination link if present, else increment /page/N/ (query string preserved).
+    const pageNoOf = url => Number((new URL(url).pathname.match(/\/page\/(\d+)\/?$/) || [])[1] || 1);
+
+    function nextLinkIn(doc, base) {
+      const cur = pageNoOf(base);
+      const a = doc.querySelector('a.next, .next.page-numbers, a[rel="next"]');
+      if (a?.getAttribute('href')) {
+        const href = abs(a.getAttribute('href'), base);
+        if (pageNoOf(href) > cur) return href;          // never accept a link that goes backwards
+      }
+      const u = new URL(base);
+      u.pathname = u.pathname.replace(/\/(page\/\d+\/?)?$/, '') + `/page/${cur + 1}/`;
+      return u.href;
+    }
+
+    let nextPage = nextLinkIn(document, location.href);
+    let loading = false, emptyPages = 0, lastError = false, sentinelVisible = false;
+    let checked = 0, lastPage = pageNoOf(location.href), burst = 0, burstPaused = false;
+    let prefetch = null;                                   // { url, promise } — the next page, fetched early
+    function prefetchNext() {
+      if (!nextPage || loading || lastError || !infChk.checked || prefetch?.url === nextPage) return;
+      const promise = fetchDoc(nextPage);
+      promise.catch(() => {});                             // any failure surfaces when loadMore awaits it
+      prefetch = { url: nextPage, promise };
+    }
+
+    async function loadMore() {
+      loading = true;
+      lastError = false;
+      updateStatus();
+      lastPage = pageNoOf(nextPage);
+      checked++;
+      let added = 0;
+      try {
+        const pending = prefetch?.url === nextPage ? prefetch.promise : fetchDoc(nextPage);
+        prefetch = null;
+        const { res, doc } = await pending;
+        // WordPress answers an out-of-range /page/N/ with a redirect (or 404): that's the real end.
+        const redirected = res.redirected && new URL(res.url).pathname !== new URL(nextPage).pathname;
+        if (!res.ok || redirected) {
+          nextPage = null;
+        } else {
+          added = addCardsFrom(doc);
+          applyFilters();
+          emptyPages = added ? 0 : emptyPages + 1;
+          nextPage = emptyPages >= MAX_EMPTY_PAGES ? null : nextLinkIn(doc, nextPage);
+        }
+      } catch (err) {
+        console.warn('[ABB] load more:', err);
+        lastError = true;
+      }
+      loading = false;
+      return added;
+    }
+
+    const visibleCount = () => [...grid.children].filter(c => c.style.display !== 'none').length;
+
+    // Is another page needed right now?
+    function needMore() {
+      if (!infChk.checked || !nextPage || lastError || burstPaused) return false;
+      if (wantsGoodreads() && pendingGoodreads() >= 18) return false;
+      if (sentinelVisible) return true;                        // reader is at the bottom
+      return hybridActive() && visibleCount() < FILL_TARGET;   // hidden-filter fill
+    }
+
+    // The only thing that calls loadMore(). Safe to call from anywhere, any number of times:
+    // if a loop is already running it re-checks needMore() after every page, so it picks up
+    // filter changes, sentinel changes and the toggle without a second loop ever starting.
+    async function pump() {
+      if (loading) return;
+      while (needMore()) {
+        burst++;
+        await loadMore();
+        if (hybridActive() && burst >= MAX_BURST_PAGES) { burstPaused = true; break; }
+      }
+      prefetchNext();
+      updateStatus();
+    }
+
+    new IntersectionObserver(entries => {
+      sentinelVisible = entries.some(e => e.isIntersecting);
+      if (sentinelVisible) pump();
+    }, { rootMargin: '900px 0px' }).observe(sentinel);
+
+    // Status line doubles as the retry / keep-searching control. nextPage is left alone,
+    // so "keep searching" continues from where it paused.
+    statusEl.addEventListener('click', () => {
+      if (!lastError && !burstPaused) return;
+      lastError = false; burstPaused = false; burst = 0;
+      pump();
+    });
+
+    function updateStatus() {
+      const found = visibleCount();
+      statusEl.classList.toggle('is-action', lastError || burstPaused);
+      statusEl.textContent =
+        !infChk.checked ? 'Infinite scroll is off'
+        : lastError      ? 'Load failed — click to retry'
+        : burstPaused    ? `Checked ${checked} pages (up to page ${lastPage}), ${found} matching — click to check ${MAX_BURST_PAGES} more`
+        : loading        ? (hybridActive() ? `Searching… page ${lastPage}, ${found} matching so far` : 'Loading…')
+        : !nextPage      ? '— End of results —'
+        : 'Scroll for more';
+    }
+
+    /* --- Initial render --- */
+    addCardsFrom(document);
+    applyFilters();
+    pump();
+  }
+
+  /* =====================================================================
+     10. Main-template pages (#content): book pages, login, donate, …
+         Shared header on top, native #content moved underneath, sidebars gone.
+     ===================================================================== */
+
+  // Donate page: turn the 2-column crypto table into one card per wallet.
+  function tidyDonatePage(card) {
+    const table = card.querySelector('table.main_table');
+    if (!table) return;
+    const rows = [...table.querySelectorAll('tr')];
+    const wallets = [];
+    for (let i = 0; i + 2 < rows.length; i += 3) {           // name row, address row, QR row
+      const names = rows[i].querySelectorAll('td'), addrs = rows[i + 1].querySelectorAll('td'), qrs = rows[i + 2].querySelectorAll('td');
+      names.forEach((td, c) => {
+        const name = strip(td.textContent), a = addrs[c]?.querySelector('a'), img = qrs[c]?.querySelector('img');
+        if (name && a) wallets.push({ name, addr: strip(a.textContent), href: a.getAttribute('href'), qr: img?.getAttribute('src') || '' });
+      });
+    }
+    if (!wallets.length) return;
+
+    const grid = el('div', 'abb-wallets');
+    wallets.forEach(w => {
+      const box = el('div', 'abb-wallet');
+      box.innerHTML = `
+        ${w.qr ? `<img src="${esc(w.qr)}" alt="${esc(w.name)} QR code">` : ''}
+        <h3>${esc(w.name)}</h3>
+        <code>${esc(w.addr)}</code>
+        <div class="abb-wallet-actions">
+          <button type="button" class="abb-btn">Copy address</button>
+          <a class="abb-btn" href="${esc(w.href)}">Open in wallet</a>
+        </div>`;
+      box.querySelector('button').addEventListener('click', async e => {
+        try {
+          await navigator.clipboard.writeText(w.addr);
+          e.target.textContent = 'Copied ✓';
+          setTimeout(() => { e.target.textContent = 'Copy address'; }, 1500);
+        } catch { /* clipboard blocked: address is selectable */ }
+      });
+      grid.appendChild(box);
+    });
+    table.replaceWith(grid);
+    // The tiny inline-styled h3 ("You could use crypto apps…") becomes a muted note
+    card.querySelectorAll('.navbar h3').forEach(h => h.replaceWith(el('p', 'abb-note', h.textContent.trim())));
+  }
+
+  function initContentMode(content) {
+    document.body.classList.add('abb-content');
+    const root = el('div');
+    root.id = 'abb-root';
+    root.append(buildHeader(), content);
+    document.body.appendChild(root);
+
+    const post = content.querySelector('.post');
+    const desc = post?.querySelector('.desc[itemprop="description"]');
+
+    if (!(isBook && post && desc)) {
+      // Generic page (login, donate, advanced search…): wrap everything in one card
+      const card = el('div', 'abb-page-card');
+      card.append(...content.childNodes);
+      content.appendChild(card);
+      // Image buttons (Login / Reset sprites) can't be themed — swap them for real buttons
+      card.querySelectorAll('input[type="image"]').forEach(img => {
+        const btn = el('input');
+        btn.type = /reset/i.test(img.alt + img.title + img.src) ? 'reset' : 'submit';
+        btn.name = img.name;
+        btn.value = img.alt || img.title || (btn.type === 'reset' ? 'Reset' : 'Login');
+        img.replaceWith(btn);
+      });
+      if (/^\/member\/donate/.test(location.pathname)) tidyDonatePage(card);
+      return;
+    }
+
+    /* --- book page extras --- */
+    document.body.classList.add('abb-book');
+    post.style.cssText += ';width:auto!important;max-width:none!important;float:none!important';
+    post.querySelector('.postContent').style.cssText += ';width:auto!important;max-width:none!important;float:none!important';
+    desc.replaceWith(buildDescription(desc, location.href, { newTab: false, full: true }));
+
+    const table = post.querySelector('.postContent table');
+    if (table) {
+      table.classList.add('abb-torrent');
+      const row = linksRow(collectLinks(post, post.innerHTML, location.href));
+      const gr = el('a', 'abb-dl', '📖 Goodreads');
+      gr.target = '_blank'; gr.rel = 'noopener';
+      attachGoodreads(gr, post.querySelector('.postTitle h1')?.textContent || document.title);
+      row.appendChild(gr);
+      table.before(row);
+    }
+    post.querySelectorAll('span[id^="more-"]').forEach(s => s.closest('p')?.remove());
+    post.querySelectorAll('a[href*="ddeaatr"], a[href^="/dl-14"], a[href^="/dodl"], img[src*="/images/trr"]')
+      .forEach(n => (n.closest('tr, p, .postContent > div:not(.center):not(.abb-desc)') || n).remove());
+    post.querySelector('.navigations')?.remove();
+  }
+
+  /* =====================================================================
+     10b. Forum (SMF 1.1, "Headline" theme): our header on top, SMF's own
+          markup kept underneath and recoloured; SMF's duplicate chrome removed.
+     ===================================================================== */
+  function initForumMode() {
+    document.documentElement.classList.add('abb-forum-html');
+    document.body.classList.add('abb-forum');
+
+    const body = el('div', 'abb-forum-body');
+    body.append(...document.body.childNodes);
+    const root = el('div');
+    root.id = 'abb-root';
+    root.append(buildHeader(), body);
+    document.body.appendChild(root);
+
+    // SMF's menu duplicates our header. Keep only the items ours doesn't have (forum
+    // accounts are separate from /member/login: Login/Register for guests, Profile /
+    // Messages / Logout once signed in) as a small chip row above the board list.
+    const nav = body.querySelector('#toolbar #nav, #nav');
+    if (nav) {
+      const keep = [...nav.querySelectorAll('a')].filter(a => !/^(torrents|forum home|home)$/i.test(strip(a.textContent)));
+      if (keep.length) {
+        const tools = el('div', 'abb-forum-tools');
+        keep.forEach(a => { a.className = 'abb-btn'; tools.appendChild(a); });
+        body.prepend(tools);
+      }
+    }
+    body.querySelectorAll('#toolbar, #footer, #ajax_in_progress, .yahoo').forEach(n => n.remove());
+
+    // "Welcome Guest, please login or register." bar — pure noise for guests.
+    // (A signed-in user's status line is left in place, just recoloured.)
+    const isWelcome = n => /^welcome guest,?\s*please login or register\.?$/i.test(strip(n.textContent));
+    let w = [...body.querySelectorAll('*')].filter(isWelcome).pop();          // deepest match
+    if (w) {
+      while (w.parentElement !== body && isWelcome(w.parentElement)) w = w.parentElement;
+      w.remove();
+    }
+  }
+
+  /* =====================================================================
+     11. Any other page: theme colours + clickable logo
+     ===================================================================== */
+  function initPageMode() {
+    document.body.classList.add('abb-page');
+    const logo = document.querySelector('.leftPicCustom, #header img, header img');
+    if (logo && !logo.closest('a')) {
+      const a = el('a');
+      a.href = '/';
+      logo.replaceWith(a);
+      a.appendChild(logo);
+    }
+  }
+
+  /* =====================================================================
+     12. Dispatch
+     ===================================================================== */
+  function init() {
+    try {
+      const content = document.querySelector('#content');
+      if (isForum)                                       initForumMode();
+      else if (isBook && content)                        initContentMode(content);
+      else if (isSearch || findPosts(document).length)   initListMode();
+      else if (content)                                  initContentMode(content);
+      else                                               initPageMode();
+      if (blockedScripts.length)
+        console.info('[ABB] blocked third-party scripts from:', [...new Set(blockedScripts)].join(', '));
+    } catch (err) {
+      console.error('[ABB] init failed — showing the original page', err);
+      document.body.className = document.body.className.replace(/\babb-\S+/g, '');
+      document.getElementById('abb-root')?.remove();
+    } finally {
+      document.documentElement.classList.remove('abb-boot');
+    }
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init, { once: true });
+  else init();
+  setTimeout(() => document.documentElement.classList.remove('abb-boot'), 4000); // never leave the page hidden
+})();
