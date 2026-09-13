@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AudiobookBay Enhancer
 // @namespace    https://github.com/Mhs11294/audiobookbay-enhancer
-// @version      0.1.1
+// @version      0.2.0
 // @description  Card list view, infinite scroll, category/language/format/bitrate filters, Goodreads ratings & links, Colophon-inspired themes for ABB
 // @license      MIT
 // @homepageURL  https://github.com/Mhs11294/audiobookbay-enhancer
@@ -12,15 +12,13 @@
 // @match        https://*.audiobookbay.lu/*
 // @match        http://audiobookbay.lu/*
 // @connect      www.goodreads.com
-// @grant        GM_addStyle
 // @grant        GM_setValue
 // @grant        GM_getValue
+// @grant        GM_deleteValue
 // @grant        GM_xmlhttpRequest
 // @grant        GM_registerMenuCommand
-// @run-at       document-end
+// @run-at       document-start
 // ==/UserScript==
-
-
 
 (() => {
   'use strict';
@@ -106,24 +104,40 @@
   /* =====================================================================
      2. Site vocabulary
      ===================================================================== */
-  const CATEGORIES = [
-    ['(Post)apocalyptic', 'postapocalyptic'], ['Action', 'action'], ['Adventure', 'adventure'],
-    ['Art', 'art'], ['Autobiography & Biographies', 'autobiography-biographies'],
-    ['Business', 'business'], ['Computer', 'computer'], ['Contemporary', 'contemporary'],
-    ['Crime', 'crime'], ['Detective', 'detective'], ['Doctor Who', 'doctor-who-sci-fi'],
-    ['Education', 'education'], ['Fantasy', 'fantasy'], ['General Fiction', 'general-fiction'],
-    ['Historical Fiction', 'historical-fiction'], ['History', 'history'], ['Horror', 'horror'],
-    ['Humor', 'humor'], ['Lecture', 'lecture'], ['LGBT', 'lgbt'], ['Light Novel', 'light-novel'],
-    ['Literature', 'literature'], ['LitRPG', 'litrpg'],
-    ['Misc. Non-fiction', 'general-non-fiction'], ['Mystery', 'mystery'],
-    ['Paranormal', 'paranormal'], ['Plays & Theater', 'plays-theater'],
-    ['Poetry', 'poetry'], ['Political', 'political'],
-    ['Radio Productions', 'radio-productions'], ['Romance', 'romance'],
-    ['Sci-Fi', 'sci-fi'], ['Science', 'science'], ['Self-help', 'self-help'],
-    ['Spiritual & Religious', 'spiritual'], ['Sport & Recreation', 'sports'],
-    ['Suspense', 'suspense'], ['Thriller', 'thriller'], ['True Crime', 'true-crime'],
-    ['Tutorial', 'tutorial'], ['Westerns', 'westerns'], ['Zombies', 'zombies'], ['Other', 'other'],
+  // Site taxonomy, as shown in its sidebar lists plus terms it assigns but doesn't list.
+  // [display name, URL slug under /audio-books/type/]
+  const CATEGORY_GROUPS = [
+    ['Age', [
+      ['Children', 'children'], ['Teen & Young Adult', 'teen-young-adult'], ['Adults', 'adults'],
+    ]],
+    ['Category', [
+      ['(Post)apocalyptic', 'postapocalyptic'], ['Action', 'action'], ['Adventure', 'adventure'],
+      ['Art', 'art'], ['Autobiography & Biographies', 'autobiography-biographies'],
+      ['Business', 'business'], ['Computer', 'computer'], ['Contemporary', 'contemporary'],
+      ['Crime', 'crime'], ['Detective', 'detective'], ['Doctor Who', 'doctor-who-sci-fi'],
+      ['Education', 'education'], ['Fantasy', 'fantasy'], ['General Fiction', 'general-fiction'],
+      ['Historical Fiction', 'historical-fiction'], ['History', 'history'], ['Horror', 'horror'],
+      ['Humor', 'humor'], ['Lecture', 'lecture'], ['LGBT', 'lgbt'], ['Light Novel', 'light-novel'],
+      ['Literature', 'literature'], ['LitRPG', 'litrpg'],
+      ['Misc. Non-fiction', 'general-non-fiction'], ['Mystery', 'mystery'],
+      ['Paranormal', 'paranormal'], ['Plays & Theater', 'plays-theater'],
+      ['Poetry', 'poetry'], ['Political', 'political'],
+      ['Radio Productions', 'radio-productions'], ['Romance', 'romance'],
+      ['Sci-Fi', 'sci-fi'], ['Science', 'science'], ['Self-help', 'self-help'],
+      ['Spiritual & Religious', 'spiritual'], ['Sport & Recreation', 'sports'],
+      ['Suspense', 'suspense'], ['Thriller', 'thriller'], ['True Crime', 'true-crime'],
+      ['Tutorial', 'tutorial'], ['Westerns', 'westerns'], ['Zombies', 'zombies'], ['Other', 'other'],
+    ]],
+    ['Modifiers', [
+      ['Anthology', 'anthology'], ['Bestsellers', 'bestsellers'], ['Classic', 'classic'],
+      ['Documentary', 'documentary'], ['Full Cast', 'full-cast'], ['Libertarian', 'libertarian'],
+      ['Military', 'military'], ['Novel', 'novel'], ['Short Story', 'short-story'],
+    ]],
+    ['Unlisted', [
+      ['Gay', 'gay'],
+    ]],
   ];
+  const CATEGORIES = CATEGORY_GROUPS.flatMap(([, items]) => items);   // flat list, used by the parser maps
   const LANGUAGES = ['english', 'dutch', 'french', 'spanish', 'german', 'portuguese'];
   const KNOWN_FORMATS = ['mp3', 'm4b', 'm4a', 'flac', 'ogg'];
   const FORMATS = [...KNOWN_FORMATS.map(f => [f, f.toUpperCase()]), ['other', 'Other (MIXED, …)']];
@@ -147,8 +161,8 @@
   const POST_LINK_SEL   = 'a[href*="audio-books"], .postTitle a, h2 a, h3 a';
   const FILL_TARGET     = 24;  // keep at least this many visible cards while hybrid filters are on
   const MAX_EMPTY_PAGES = 3;   // consecutive pages that add nothing before we call it the end
-  const COLOPHON_KEY    = kind => `colophon:scheme-${kind}`;
   const MAX_BURST_PAGES = 40;  // pages a hidden filter may auto-fetch before pausing for confirmation
+  const COLOPHON_KEY    = kind => `colophon:scheme-${kind}`;
   const ICON_SEARCH = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
     + 'stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">'
     + '<circle cx="11" cy="11" r="7.5"/><path d="m20 20-4.2-4.2"/></svg>';
@@ -201,8 +215,8 @@
     theme: SCHEMES[colophonScheme] ? colophonScheme : DEFAULT_SCHEME,
     infinite: true,        // ∞ Scroll
     grTitles: true,        // show Goodreads' canonical titles
-    sort: 'posted',        // list sort order (Part C)
-    blockScripts: true,    // drop third-party <script src> — ads / pop-unders (Part D)
+    sort: 'posted',        // list sort order
+    blockScripts: true,    // drop third-party <script src> (ads / pop-unders)
   }, GM_getValue(SETTINGS_KEY, {}));
 
   // One-off migration from the v10 per-key values
@@ -268,7 +282,7 @@
   /* =====================================================================
      6. Styles
      ===================================================================== */
-    const CSS = `
+  const CSS = `
     /* ---- base ---- */
     html[data-abb-scheme="dark"]  { color-scheme: dark; }
     html[data-abb-scheme="light"] { color-scheme: light; }
@@ -306,7 +320,7 @@
       display: inline-block; background: var(--secondary); color: var(--muted-foreground);
       padding: 3px 9px; border-radius: 999px; font-size: 11.5px; white-space: nowrap;
     }
-    .abb-badge.abb-cat { color: var(--brand); background: var(--brand-soft); }
+    .abb-badge.abb-cat { color: var(--brand); border: 1px solid var(--brand-soft); }
     .abb-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
     .abb-chip {
       background: var(--secondary); color: var(--foreground); border: 1px solid var(--border);
@@ -349,8 +363,7 @@
     .abb-header.abb-search-open .abb-search .abb-adv { max-width: 120px; opacity: 1; margin-right: 10px; }
     .abb-theme { position: relative; margin-left: 8px; }
     .abb-theme-btn span { display: none; }      /* theme name lives in the tooltip */
-    .abb-theme-pop { right: 0; }                 /* popover opens leftwards from the edge */
-    .abb-theme-pop { width: 340px; max-height: 380px; overflow-y: auto; }
+    .abb-theme-pop { right: 0; width: 340px; max-height: 380px; overflow-y: auto; }
     .abb-pop-title {
       font-size: 11px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase;
       color: var(--muted-foreground); margin: 0 0 6px;
@@ -435,10 +448,44 @@
     .abb-sentinel { height: 1px; }
     .abb-gr-badge { color: var(--brand); border-color: var(--brand-soft); }
 
+    /* category multi-select popover */
+    .abb-multi { position: relative; }
+    .abb-multi > summary { list-style: none; cursor: pointer; display: flex; align-items: center; min-width: 190px; white-space: nowrap; }
+    .abb-multi > summary::-webkit-details-marker { display: none; }
+    .abb-multi > summary::after { content: '⌄'; margin-left: auto; padding-left: 8px; color: var(--muted-foreground); }
+    .abb-multi-list { margin: 8px 0; }
+    .abb-multi-group { margin-bottom: 10px; }
+    .abb-multi-group h4 {
+      margin: 0 0 4px; padding: 0 6px; font-size: 11px; font-weight: 600; letter-spacing: .06em;
+      text-transform: uppercase; color: var(--muted-foreground);
+    }
+    .abb-multi-panel {
+      position: absolute; z-index: 30; top: calc(100% + 6px); left: 0; width: 380px; max-width: calc(100vw - 32px);
+      max-height: 60vh; overflow: auto;
+      background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 10px;
+      box-shadow: 0 8px 24px rgba(0,0,0,.35);
+    }
+    .abb-multi-group { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 8px; }
+    .abb-multi-group h4 { grid-column: 1 / -1; }
+    .abb-multi-list label, .abb-multi-mode {
+      display: flex; align-items: flex-start; gap: 8px; min-width: 0; font-size: 13px; line-height: 1.35;
+      padding: 4px 6px; border-radius: 6px; cursor: pointer; white-space: normal; overflow-wrap: anywhere;
+    }
+    .abb-multi input[type="checkbox"] { accent-color: var(--brand); margin: 2px 0 0; flex: none; }
+    .abb-multi-list label:hover { background: var(--secondary); }
+    .abb-multi-mode { border-bottom: 1px solid var(--border); padding-bottom: 8px; border-radius: 0; color: var(--muted-foreground); }
+    .abb-multi-clear { width: 100%; justify-content: center; }
+
     /* ---- book page (/abss/) ---- */
     body.abb-book .post, body.abb-book .commentZone {
-      width: auto !important; background: var(--card); border: 1px solid var(--border);
+      background: var(--card); border: 1px solid var(--border);
       border-radius: 14px; padding: 28px 32px; margin: 0 0 20px;
+    }
+    /* the site's fixed column widths / floats must not survive inside the card */
+    body.abb-book .post, body.abb-book .postTitle, body.abb-book .postInfo, body.abb-book .postContent,
+    body.abb-book .postContent > *, body.abb-book .abb-desc, body.abb-book .abb-desc > *, body.abb-book .abb-desc p {
+      float: none !important; width: auto !important; max-width: none !important; min-width: 0 !important;
+      margin-left: 0 !important; margin-right: 0 !important;
     }
     body.abb-book .postTitle h1 { font-size: 22px; line-height: 1.3; margin: 0 0 16px; color: var(--foreground); }
     body.abb-book .postInfo {
@@ -453,7 +500,7 @@
     body.abb-book .postInfo span[style] { margin-left: 16px !important; }
     body.abb-book .postInfo h2 { display: inline; font: inherit; margin: 0; padding: 0; border: 0; }
     body.abb-book .postContent {
-      display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 24px 28px; align-items: start;
+      display: grid !important; grid-template-columns: 250px minmax(0, 1fr); gap: 24px 28px; align-items: start;
     }
     body.abb-book .postContent > .center { grid-column: 1; text-align: center; }
     body.abb-book .postContent > .center p { margin: 0 0 10px; font-size: 12.5px; color: var(--muted-foreground); }
@@ -461,16 +508,9 @@
     body.abb-book .postContent img[itemprop="image"] {
       display: block; width: 100%; max-width: 250px; height: auto; margin: 0 auto; border-radius: 10px;
     }
-    body.abb-book .postContent > .abb-desc { grid-column: 2; font-size: 14.5px; line-height: 1.65; }
-    body.abb-book .postContent > .abb-links, body.abb-book .postContent > .abb-torrent { grid-column: 1 / -1; }
-    body.abb-book .post, body.abb-book .postContent, body.abb-book .postTitle, body.abb-book .postInfo,
-    body.abb-book .postContent > *, body.abb-book .abb-desc, body.abb-book .abb-desc > *,
-    body.abb-book .abb-desc p, body.abb-book .abb-body, body.abb-book .abb-chips {
-      float: none !important; width: auto !important; max-width: none !important; min-width: 0 !important;
-      margin-left: 0 !important; margin-right: 0 !important;
-    }
-    body.abb-book .postContent > .abb-desc { grid-column: 2; justify-self: stretch; }
-
+    body.abb-book .postContent > .abb-desc { grid-column: 2; justify-self: stretch; font-size: 14.5px; line-height: 1.65; }
+    body.abb-book .postContent > .abb-links, body.abb-book .postContent > .abb-torrent,
+    body.abb-book .postContent > .abb-trackers { grid-column: 1 / -1; }
     body.abb-book .abb-torrent {
       width: 100%; border-collapse: collapse; font-size: 12.5px; border: 1px solid var(--border) !important;
     }
@@ -481,6 +521,24 @@
     body.abb-book .abb-torrent td:first-child:not([colspan]) { color: var(--muted-foreground); white-space: nowrap; }
     body.abb-book .abb-torrent span { color: inherit !important; font: inherit !important; }
     body.abb-book .abb-torrent a, body.abb-book .commentZone a { color: var(--brand); }
+    
+	/* collapsible tracker list (built by collapseTrackers) */
+    body.abb-book .abb-trackers {
+      background: var(--secondary); border: 1px solid var(--border); border-radius: 10px; margin-bottom: 14px;
+    }
+    body.abb-book .abb-trackers > summary {
+      list-style: none; cursor: pointer; display: flex; align-items: center; gap: 10px;
+      padding: 10px 14px; font-size: 13.5px; color: var(--foreground); user-select: none;
+    }
+    body.abb-book .abb-trackers > summary::-webkit-details-marker { display: none; }
+    body.abb-book .abb-trackers > summary:hover { color: var(--brand); }
+    body.abb-book .abb-caret { display: inline-block; font-size: 11px; color: var(--muted-foreground); transition: transform .15s; }
+    body.abb-book .abb-trackers[open] > summary .abb-caret { transform: rotate(90deg); }
+    body.abb-book .abb-tracker-count { margin-left: auto; font-size: 12px; color: var(--muted-foreground); }
+    body.abb-book .abb-trackers .abb-tracker-table {
+      width: 100%; margin: 0; border: 0; border-top: 1px solid var(--border); border-radius: 0; background: transparent;
+    }
+
     body.abb-book .commentZone h3 { font-size: 16px; margin: 0 0 12px; color: var(--foreground); }
     body.abb-book .commentZone h3 small, body.abb-book .commentmetadata { color: var(--muted-foreground); font-weight: 400; }
     body.abb-book .commentList { list-style: none; margin: 0 0 24px; padding: 0; }
@@ -503,44 +561,41 @@
     body.abb-book #commentform label small { color: var(--muted-foreground); }
 
     /* ---- generic main-template page (login, donate, advanced search, …) ---- */
-
     body.abb-content #content { float: none !important; width: auto !important; margin: 0 !important; padding: 0 !important; }
     .abb-page-card {
       background: var(--card); border: 1px solid var(--border); border-radius: 14px;
       padding: 28px 32px; margin-bottom: 20px; color: var(--foreground);
       font-size: 14.5px; line-height: 1.6;
     }
-    .abb-page-card h1, .abb-page-card h2, .abb-page-card h3 { color: var(--foreground); line-height: 1.3; margin: 0 0 14px; }
+    .abb-page-card h1, .abb-page-card h2, .abb-page-card h3 {
+      font-family: inherit !important; color: var(--foreground); line-height: 1.3; margin: 0 0 14px;
+    }
     .abb-page-card h1 { font-size: 22px; } .abb-page-card h2 { font-size: 18px; } .abb-page-card h3 { font-size: 16px; }
     .abb-page-card p { margin: 0 0 10px; }
     .abb-page-card a { color: var(--brand); }
     .abb-page-card hr { border: 0; border-top: 1px solid var(--border); margin: 16px 0; }
     .abb-page-card img { max-width: 100%; height: auto; border-radius: 8px; }
     .abb-page-card table { border-collapse: collapse; }
-    .abb-page-card td, .abb-page-card th { padding: 8px 10px; border: 0; vertical-align: middle; color: var(--foreground); }
+    .abb-page-card table, .abb-page-card td, .abb-page-card th { border: 0 !important; }
+    .abb-page-card td, .abb-page-card th { padding: 8px 10px; vertical-align: middle; color: var(--foreground); }
     .abb-page-card [bgcolor], .abb-page-card [style*="background"] { background: var(--secondary) !important; }
-    .abb-page-card input:not([type="submit"]):not([type="button"]):not([type="checkbox"]):not([type="radio"]),
+    .abb-page-card input:not([type="submit"]):not([type="button"]):not([type="reset"]):not([type="checkbox"]):not([type="radio"]),
     .abb-page-card textarea, .abb-page-card select {
       background: var(--secondary); color: var(--foreground); border: 1px solid var(--input);
       border-radius: 8px; padding: 8px 10px; font: inherit; font-size: 13px; outline: none;
     }
     .abb-page-card input:focus-visible, .abb-page-card textarea:focus-visible { border-color: var(--ring); }
-    .abb-page-card input[type="submit"], .abb-page-card input[type="button"], .abb-page-card button {
-      background: var(--brand); color: var(--background); border: 0; border-radius: 8px;
-      padding: 9px 16px; font: inherit; font-size: 13px; cursor: pointer;
-    }
-    .abb-page-card h1, .abb-page-card h2, .abb-page-card h3 { font-family: inherit !important; }
-    .abb-page-card table, .abb-page-card td, .abb-page-card th { border: 0 !important; }
-    .abb-page-card input[type="submit"], .abb-page-card input[type="button"], .abb-page-card input[type="reset"],
-    .abb-page-card button {
+    .abb-page-card input[type="submit"], .abb-page-card input[type="button"], .abb-page-card input[type="reset"], .abb-page-card button {
       background: var(--brand) !important; background-image: none !important; color: var(--background) !important;
       border: 0 !important; border-radius: 8px !important; padding: 9px 16px !important; margin-right: 8px;
+      font: inherit; font-size: 13px; cursor: pointer;
     }
     .abb-page-card input[type="reset"] { background: var(--secondary) !important; color: var(--foreground) !important; }
     .abb-page-card input:-webkit-autofill, .abb-forum-body input:-webkit-autofill {
       -webkit-box-shadow: 0 0 0 1000px var(--secondary) inset !important;
       -webkit-text-fill-color: var(--foreground) !important;
     }
+
     .abb-wallets { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; margin-top: 16px; }
     .abb-wallet {
       background: var(--secondary); border: 1px solid var(--border); border-radius: 12px;
@@ -567,7 +622,7 @@
     }
     .abb-forum-body, .abb-forum-body td, .abb-forum-body th, .abb-forum-body div, .abb-forum-body span,
     .abb-forum-body li, .abb-forum-body label, .abb-forum-body b { color: var(--foreground) !important; font-size: 14px; }
-    .abb-forum-body a { color: var(--brand) !important; }
+    .abb-forum-body a { color: var(--brand) !important; text-transform: none !important; }
     .abb-forum-body .smalltext, .abb-forum-body .smalltext * { color: var(--muted-foreground) !important; font-size: 12.5px !important; }
     .abb-forum-body .middletext { font-size: 13px !important; }
     .abb-forum-body .smalltext a { color: var(--brand) !important; }
@@ -581,8 +636,28 @@
       background-color: transparent !important; background-image: none !important; box-shadow: none !important;
     }
     .abb-forum-body > table:first-of-type td { padding: 0 !important; }             /* the title strip */
-    .abb-forum-body h1.nav { font-size: 20px !important; margin: 4px 0 16px !important; }
-    .abb-forum-body h1.nav a { color: var(--foreground) !important; text-decoration: none; }
+    
+	/* current location directory trail */
+    .abb-forum-body h1.nav, .abb-forum-body div.nav, .abb-forum-body td.nav,
+    .abb-forum-body .nav b, .abb-forum-body .nav span {
+      font-size: 13px !important; font-weight: 500 !important; color: var(--muted-foreground) !important;
+      line-height: 1.6; background: none !important;
+    }
+    .abb-forum-body h1.nav, .abb-forum-body div.nav { margin: 0 0 14px !important; padding: 0 !important; }
+    .abb-forum-body a.nav, .abb-forum-body .nav a { color: var(--muted-foreground) !important; text-decoration: none; }
+    .abb-forum-body .nav a:hover { color: var(--brand) !important; }
+    .abb-forum-body .nav a:last-of-type, .abb-forum-body .nav b:last-of-type a { color: var(--foreground) !important; font-weight: 600 !important; }
+
+    /* topic pages: breadcrumb and previous/next topic share one line; tighter pages/buttons bar */
+    .abb-forum-body .abb-crumbs { display: flex !important; align-items: baseline; flex-wrap: wrap; gap: 6px 16px; margin: 0 0 10px !important; }
+    .abb-forum-body .abb-crumb-trail { flex: 1 1 auto; min-width: 0; }
+    .abb-forum-body .abb-topic-nav { flex: none; margin-left: auto; display: inline-flex; gap: 14px; white-space: nowrap; }
+    .abb-forum-body .nav .abb-topic-nav a, .abb-forum-body .nav .abb-topic-nav a:last-of-type {
+      color: var(--muted-foreground) !important; font-size: 13px !important; font-weight: 500 !important; text-decoration: none;
+    }
+    .abb-forum-body .nav .abb-topic-nav a:hover { color: var(--brand) !important; }
+    .abb-forum-body .abb-topic-bar { margin: 0 0 10px !important; }
+    .abb-forum-body .abb-topic-bar td { padding: 4px 0 !important; vertical-align: middle !important; }
 
     /* panels: .tborder is the card, table.bordercolor's background is the 1px grid line */
     .abb-forum-body .tborder {
@@ -597,7 +672,22 @@
       background: var(--secondary) !important; background-image: none !important; border: 0 !important;
       color: var(--foreground) !important; font-weight: 600; padding: 10px 14px !important;
     }
-    .abb-forum-body .catbg a, .abb-forum-body .titlebg a { color: var(--foreground) !important; text-decoration: none; }
+    /* Panel headers. The Headline theme has titlebg/titlebg2/catbg/catbg2/catbg3 variants and puts the
+       class on <td> in some templates and on <tr> in others — match by substring and cover both */
+    .abb-forum-body [class*="titlebg"], .abb-forum-body [class*="catbg"],
+    .abb-forum-body tr[class*="titlebg"] > td, .abb-forum-body tr[class*="titlebg"] > th,
+    .abb-forum-body tr[class*="catbg"] > td, .abb-forum-body tr[class*="catbg"] > th {
+      background: var(--secondary) !important; background-image: none !important;
+      color: var(--foreground) !important; font-weight: 600; font-size: 13px !important;
+      border-bottom: 0 !important;
+    }
+    .abb-forum-body [class*="titlebg"] a, .abb-forum-body [class*="catbg"] a,
+    .abb-forum-body tr[class*="titlebg"] > td a, .abb-forum-body tr[class*="catbg"] > td a {
+      color: var(--foreground) !important; text-decoration: none;
+    }
+    .abb-forum-body [class*="titlebg"] a:hover, .abb-forum-body [class*="catbg"] a:hover,
+    .abb-forum-body tr[class*="titlebg"] > td a:hover, .abb-forum-body tr[class*="catbg"] > td a:hover { color: var(--brand) !important; }
+
     .abb-forum-body td img { vertical-align: middle; }
     .abb-forum-body td img[alt="No New Posts"] { opacity: .45; }
 
@@ -611,8 +701,54 @@
     }
     .abb-forum-body .code { font-family: ui-monospace, Menlo, Consolas, monospace !important; font-size: 12.5px; white-space: pre-wrap; }
 
+    /* posted-date popover (reuses the category popover chrome) */
+    .abb-date .abb-multi-panel { width: 300px; }
+    .abb-date .abb-multi-group { grid-template-columns: 1fr; }
+    .abb-multi input[type="radio"] { accent-color: var(--brand); margin: 2px 0 0; flex: none; }
+    .abb-date-range { display: none; grid-template-columns: 1fr 1fr; gap: 8px; padding: 4px 6px 10px; }
+    .abb-date.abb-date-custom .abb-date-range { display: grid; }
+    .abb-date-range label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted-foreground); }
+    .abb-date-range input[type="date"] { height: 32px; padding: 0 8px; font-size: 13px; min-width: 0; }
+
+    /* two-column pages (profile, personal messages) — cells tagged by initForumMode */
+    .abb-forum-body table.abb-two-col {
+      display: grid !important; grid-template-columns: 230px minmax(0, 1fr); gap: 20px; align-items: start; width: 100% !important;
+    }
+    .abb-forum-body table.abb-two-col > tbody, .abb-forum-body table.abb-two-col > tbody > tr { display: contents; }
+    .abb-forum-body td.abb-side, .abb-forum-body td.abb-main { display: block; width: auto !important; padding: 0 !important; }
+
+    /* the nav box: same card look as the content box */
+    .abb-forum-body .abb-side > table {
+      width: 100% !important; margin: 0 !important; border-spacing: 0 !important;
+      background: var(--card) !important; border: 1px solid var(--border) !important; border-radius: 12px; overflow: hidden;
+    }
+    .abb-forum-body .abb-side > table > tbody > tr > td { padding: 8px 14px !important; border-top: 1px solid var(--border); }
+    .abb-forum-body .abb-side > table > tbody > tr:first-child > td { border-top: 0; }
+    .abb-forum-body .abb-side td[class*="catbg"], .abb-forum-body .abb-side td[class*="titlebg"] { padding: 9px 14px !important; }
+    .abb-forum-body .abb-side [class*="windowbg"] { background: var(--card) !important; }
+    .abb-forum-body .abb-side [class*="windowbg"] br { display: none; }
+    .abb-forum-body .abb-side [class*="windowbg"] b { display: contents; }   /* bold wrapper on the current page must not add a second row of padding */
+
+    .abb-forum-body .abb-side [class*="windowbg"] a, .abb-forum-body .abb-side [class*="windowbg"] b {
+      display: block; padding: 4px 0; font-size: 13px !important; line-height: 1.4;
+    }
+    /* the content box: full width, our card look instead of the cellspacing=1 "bordercolor" grid */
+    .abb-forum-body .abb-main > table, .abb-forum-body .abb-main > form > table {
+      width: 100% !important; margin: 0 0 16px !important; border-spacing: 0 !important;
+      background: var(--card) !important; border: 1px solid var(--border) !important; border-radius: 12px; overflow: hidden;
+    }
+    .abb-forum-body .abb-main > table > tbody > tr > td { padding: 12px 16px !important; border-top: 1px solid var(--border); }
+    .abb-forum-body .abb-main > table > tbody > tr:first-child > td { border-top: 0; }
+    .abb-forum-body .abb-main [class*="windowbg"] { background: var(--card) !important; }
+    .abb-forum-body .abb-main table table { width: 100% !important; }         /* the Name/Posts/… detail grid */
+    .abb-forum-body .abb-main table table td { padding: 5px 8px !important; border: 0 !important; vertical-align: top; }
+    .abb-forum-body .abb-main table table td:first-child { width: 160px; color: var(--muted-foreground); white-space: nowrap; }
+    .abb-forum-body .abb-main table table td:first-child b { font-weight: 500; }
+    .abb-forum-body .abb-main hr { border: 0 !important; border-top: 1px solid var(--border) !important; margin: 10px 0; height: 0; }
+    .abb-forum-body .abb-main .signature:empty { display: none; }
+
     /* our chip row (surviving SMF nav items) */
-    .abb-forum-tools { display: flex; gap: 8px; justify-content: flex-end; margin: -4px 0 14px; }
+    .abb-forum-tools { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; margin: -4px 0 14px; }
     .abb-forum-body .abb-forum-tools .abb-btn {
       display: inline-flex; align-items: center; height: 32px; padding: 0 12px !important;
       background: var(--secondary) !important; color: var(--foreground) !important;
@@ -620,6 +756,27 @@
       font-size: 13px !important; text-decoration: none !important;
     }
     .abb-forum-body .abb-forum-tools .abb-btn:hover { background: var(--brand-soft) !important; color: var(--brand) !important; }
+
+    /* forum search: drop-down under its button (built by buildForumSearch) */
+    .abb-forum-tools .abb-forum-search { position: relative; display: flex; margin: 0 !important; padding: 0 !important; }
+    .abb-forum-tools .abb-forum-search-pop {
+      display: none; position: absolute; z-index: 30; top: calc(100% + 6px); right: 0;
+      align-items: center; gap: 8px; padding: 8px; width: 440px; max-width: calc(100vw - 32px);
+      background: var(--card); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,.35);
+    }
+    .abb-forum-tools .abb-forum-search.is-open .abb-forum-search-pop { display: flex; }
+    .abb-forum-tools .abb-forum-search.is-open .abb-forum-search-btn { background: var(--brand-soft) !important; color: var(--brand) !important; }
+    .abb-forum-tools .abb-forum-search-pop .abb-input {
+      flex: 1 1 auto; min-width: 0; height: 34px; padding: 0 12px; font: inherit; font-size: 13px; outline: none;
+      background: var(--secondary) !important; color: var(--foreground) !important;
+      border: 1px solid var(--input) !important; border-radius: 8px;
+    }
+    .abb-forum-tools .abb-forum-search-pop .abb-input:focus-visible { border-color: var(--ring) !important; }
+    .abb-forum-body .abb-forum-tools .abb-forum-search-go {
+      flex: none; background: var(--brand) !important; color: var(--background) !important; border-color: transparent !important;
+    }
+    .abb-forum-tools .abb-forum-search-pop .abb-adv { flex: none; font-size: 12px; white-space: nowrap; color: var(--muted-foreground) !important; text-decoration: none; }
+    .abb-forum-tools .abb-forum-search-pop .abb-adv:hover { color: var(--brand) !important; }
 
     /* forms & buttons */
     .abb-forum-body input:not([type="submit"]):not([type="button"]):not([type="checkbox"]):not([type="radio"]):not([type="image"]),
@@ -635,10 +792,11 @@
 
     /* ---- any other page (login, forum, …): colours only ---- */
     body.abb-page a { color: var(--brand); }
+
    `;
 
-  // Injected at document-start, so the very first paint is already themed. We use our own <style>
-  // element rather than GM_addStyle so list mode can tell it apart from the site's stylesheets (D4).
+  // Injected at document-start so the first paint is already themed. Our own <style> element
+  // (not GM_addStyle) so list mode can tell it apart from the site's stylesheets when it strips them.
   const styleEl = document.createElement('style');
   styleEl.id = 'abb-style';
   styleEl.textContent = CSS;
@@ -739,17 +897,23 @@
       title: (best.bookTitleBare || '').replace(/\s+/g, ' ').trim(),
       rating: parseFloat(best.avgRating) || 0,
       count: Number(best.ratingsCount) || 0,
-      pages: Number(best.numPages) || 0,
       series: (best.title.match(/\(([^()]*#[^()]*)\)\s*$/) || [])[1] || '',   // "Windy Peaks #1"
       author: (best.author?.name || '').replace(/\s+/g, ' ').trim(),
     };
   }
 
   // Only trust a Goodreads title for display if it visibly matches what the uploader wrote:
-  // ≥60% of its significant words appear in the ABB title, or the author's surname does plus one word.
+  // ≥60% of its significant words appear in the ABB title, or the author's surname does plus one word —
+  // and it is written in the same script. Goodreads often returns a translated edition (Chinese, Russian…)
+  // whose title still contains the English words, which would otherwise pass the word test.
   const normT = s => (s || '').toLowerCase().replace(/[’'"]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
+  const latinShare = s => {
+    const letters = (s || '').match(/\p{L}/gu) || [];
+    return letters.length ? letters.filter(ch => /\p{Script=Latin}/u.test(ch)).length / letters.length : 1;
+  };
   function grPlausible(abbTitle, info) {
     if (!info.title) return false;
+    if (latinShare(abbTitle) >= 0.7 && latinShare(info.title) < 0.7) return false;   // different script
     const a = normT(abbTitle);
     const words = normT(info.title).split(' ').filter(w => w.length > 2);
     const hits = words.filter(w => a.includes(w)).length;
@@ -847,23 +1011,61 @@
   const grVisible = new IntersectionObserver(entries =>
     entries.forEach(e => e.isIntersecting && e.target._grKick?.(false)), { rootMargin: '300px 0px' });
 
-  // "434.01 MBs" / "1.2 GB" → megabytes
+  /* ---------- Categories ---------- */
+  const catNorm = s => s.toLowerCase().replace(/&/g, 'and').replace(/[^a-z0-9]+/g, '');
+  const catSlugify = s => s.toLowerCase().replace(/&/g, 'and').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  const CAT_SLUG_BY_NORM = Object.fromEntries(CATEGORIES.map(([n, s]) => [catNorm(n), s]));
+  const CAT_NORM_BY_SLUG = Object.fromEntries(CATEGORIES.map(([n, s]) => [s, catNorm(n)]));
+
+  // Listing pages print categories as plain text: "Category: Adults&nbsp; Gay&nbsp; Romance&nbsp; <br>Language: …".
+  // Archive/book pages sometimes link them. Handle both; names map to slugs via CATEGORIES.
+  function parseCategories(post) {
+    const info = post.querySelector('.postInfo');
+    if (!info) return [];
+    const links = [...info.querySelectorAll('a[href*="/type/"]')];
+    let names;
+    if (links.length) {
+      names = links.map(a => strip(a.textContent));
+    } else {
+      let raw = '';
+      for (const n of info.childNodes) {                       // only the first line, up to <br>
+        if (n.nodeName === 'BR') break;
+        if (n.nodeType === 3 || n.nodeName === 'A' || n.nodeName === 'SPAN') raw += n.textContent;
+      }
+      raw = raw.replace(/^\s*Category:\s*/i, '').replace(/Language:.*$/i, '');
+      names = raw.split(/\u00A0+/).map(s => s.replace(/\s+/g, ' ').trim());
+    }
+    return [...new Set(names.filter(Boolean))].map(name => {
+      const norm = catNorm(name);
+      return { name, norm, slug: CAT_SLUG_BY_NORM[norm] || catSlugify(name) };
+    });
+  }
+
   const sizeMb = s => {
     const m = (s || '').match(/([0-9.]+)\s*([KMGT])?/i);
     return m ? parseFloat(m[1]) * ({ K: 1 / 1024, M: 1, G: 1024, T: 1048576 }[(m[2] || 'M').toUpperCase()] || 1) : 0;
   };
 
+  // "12 Sep 2026" (the Posted: value) → local-midnight timestamp; 0 if absent or unparseable
+  const MONTH_IDX = Object.fromEntries('jan feb mar apr may jun jul aug sep oct nov dec'.split(' ').map((m, i) => [m, i]));
+  function parsePosted(s) {
+    const m = (s || '').match(/(\d{1,2})\s+([A-Za-z]{3})[A-Za-z]*\.?\s+(\d{4})/);
+    if (!m) return 0;
+    const mo = MONTH_IDX[m[2].toLowerCase()];
+    return mo === undefined ? 0 : new Date(+m[3], mo, +m[1]).getTime();
+  }
+
   function parseCard(post) {
     const link = post.querySelector(POST_LINK_SEL);
     const text = post.textContent.replace(/\s+/g, ' ');
     const grab = re => (text.match(re) || [])[1] || '';
-    const catLinks = [...post.querySelectorAll('.postInfo a[href*="/type/"]')];
+    const cats = parseCategories(post);
     return {
       title: link ? strip(link.textContent) : '',
       url: link?.href || '',
       img: post.querySelector('img')?.src || '',
-      categories: catLinks.map(a => strip(a.textContent)).filter(Boolean),
-      catSlugs: catLinks.map(a => (a.getAttribute('href').match(/\/type\/([^/]+)/) || [])[1]).filter(Boolean),
+      categories: cats.map(c => c.name),
+      catKeys: [...new Set(cats.flatMap(c => [c.slug, c.norm]))],
       format: grab(/Format:\s*([A-Za-z0-9]+)/i).toLowerCase(),
       bitrate: grab(/Bitrate:\s*([0-9]+\s*[KkMm]?bps|\?+)/i),
       kbps: (m => m ? Math.round(parseFloat(m[1]) * (/m/i.test(m[2]) ? 1000 : 1)) : 0)
@@ -1126,14 +1328,40 @@
     const toolbar = el('div', 'abb-toolbar');
     toolbar.innerHTML = `
       <input class="abb-input" type="search" id="abb-q" placeholder="Filter loaded titles… (Enter = site search)">
-      <select class="abb-input" id="abb-cat"></select>
+      <details class="abb-multi" id="abb-cat">
+        <summary class="abb-input">Category · any</summary>
+        <div class="abb-multi-panel">
+          <label class="abb-multi-mode"><input type="checkbox" id="abb-cat-all"> Must match all selected</label>
+          <div class="abb-multi-list"></div>
+          <button type="button" class="abb-btn abb-multi-clear">Clear</button>
+        </div>
+      </details>
       <select class="abb-input" id="abb-lang"></select>
       <select class="abb-input" id="abb-fmt"></select>
       <select class="abb-input" id="abb-bit"></select>
       <select class="abb-input" id="abb-gr"></select>
+      <details class="abb-multi abb-date" id="abb-date">
+        <summary class="abb-input">Posted · any</summary>
+        <div class="abb-multi-panel">
+          <div class="abb-multi-group"><h4>Posted</h4>
+            <label><input type="radio" name="abb-date" value="any" checked> Any time</label>
+            <label><input type="radio" name="abb-date" value="today"> Today</label>
+            <label><input type="radio" name="abb-date" value="7d"> Last 7 days</label>
+            <label><input type="radio" name="abb-date" value="30d"> Last 30 days</label>
+            <label><input type="radio" name="abb-date" value="90d"> Last 90 days</label>
+            <label><input type="radio" name="abb-date" value="year"> This year</label>
+            <label><input type="radio" name="abb-date" value="custom"> Custom range</label>
+          </div>
+          <div class="abb-date-range">
+            <label>From <input type="date" id="abb-date-from" class="abb-input"></label>
+            <label>To <input type="date" id="abb-date-to" class="abb-input"></label>
+          </div>
+          <button type="button" class="abb-btn abb-multi-clear" id="abb-date-clear">Clear</button>
+        </div>
+      </details>
       <select class="abb-input" id="abb-sort"></select>
       <label class="abb-switch"><input type="checkbox" id="abb-inf"> ∞ Scroll</label>
-      <label class="abb-switch"><input type="checkbox" id="abb-grt"> GR titles</label>
+      <label class="abb-switch"><input type="checkbox" id="abb-grt"> Goodreads titles</label>
       <span class="abb-count"></span>`;
     const grid = el('div');
     grid.id = 'abb-grid';
@@ -1143,20 +1371,25 @@
     document.body.appendChild(root);
 
     const $ = s => root.querySelector(s);
-    const qInput = $('#abb-q'), catSel = $('#abb-cat'), langSel = $('#abb-lang'),
-          fmtSel = $('#abb-fmt'), bitSel = $('#abb-bit'), infChk = $('#abb-inf'),
-          countEl = $('.abb-count'),grSel = $('#abb-gr'),grtChk = $('#abb-grt'),
-          sortSel = $('#abb-sort');
+    const qInput = $('#abb-q'), langSel = $('#abb-lang'), fmtSel = $('#abb-fmt'), bitSel = $('#abb-bit'),
+          grSel = $('#abb-gr'), sortSel = $('#abb-sort'), infChk = $('#abb-inf'), grtChk = $('#abb-grt'),
+          countEl = $('.abb-count');
+
 
     /* --- Hybrid (client-side) filters: ride along in sessionStorage between pages --- */
     const hyb = {
       lang: urlLang ? '' : (session.get('lang') || ''),
-      cat:  urlCat  ? '' : (session.get('cat')  || ''),
+      cats: (session.get('cat') || '').split(',').filter(Boolean),
+      date: (() => { try { return JSON.parse(session.get('date') || '{}'); } catch { return {}; } })(),
     };
+    if (urlCat && !hyb.cats.includes(urlCat)) hyb.cats.push(urlCat);   // arrived via a site category link
     const setHyb = (k, v) => { hyb[k] = v; session.set(k, v); };
     if (urlLang) session.set('lang', ''); // a built-in URL filter supersedes the hybrid one
-    if (urlCat)  session.set('cat', '');
-    const hybridActive = () => Boolean(hyb.lang || hyb.cat);
+    const dateActive = () => {
+      const { preset, from, to } = hyb.date;
+      return Boolean(preset && preset !== 'any' && (preset !== 'custom' || from || to));
+    };
+    const hybridActive = () => Boolean(hyb.lang || hyb.cats.length || dateActive());
 
     /* --- Dropdowns --- */
     function fillSelect(sel, anyLabel, options, selected) {
@@ -1164,9 +1397,6 @@
         ...options.map(([value, label]) => new Option(label, value)));
       sel.value = [...sel.options].some(o => o.value === selected) ? selected : 'any';
     }
-    fillSelect(catSel, 'Category · any',
-      CATEGORIES.map(([n, s]) => ['cat:' + s, 'Category · ' + n]),
-      'cat:' + (urlCat || hyb.cat));
     fillSelect(langSel, 'Language · any',
       LANGUAGES.map(l => ['lang:' + l, 'Language · ' + l[0].toUpperCase() + l.slice(1)]),
       'lang:' + (urlLang || hyb.lang));
@@ -1197,27 +1427,87 @@
     const refilter = () => { applyFilters(); burst = 0; burstPaused = false; pump(); };
     const goTo = href => { location.href = href; };
 
-    // Which archive to read from, and which dimension becomes a client-side filter.
-    // Non-English language archives are far smaller than category archives, so when both
-    // are set we read the language archive and filter by category — not the other way round.
-    function chooseArchive(cat, lang) {
-      const byLang = lang && (!cat || lang !== 'english');
-      const path = byLang ? `/audio-books/tag/${lang}/` : cat ? `/audio-books/type/${cat}/` : '/';
-      const next = { cat: byLang ? cat : '', lang: byLang ? '' : lang };
-      session.set('cat', next.cat);
-      session.set('lang', next.lang);
-      if (path === location.pathname) { Object.assign(hyb, next); refilter(); }
-      else location.href = path;
+    /* --- Category: multi-select checkbox panel, always client-side --- */
+    const catBox = $('#abb-cat'), catSummary = catBox.querySelector('summary'),
+          catList = catBox.querySelector('.abb-multi-list'), catAllChk = $('#abb-cat-all');
+    catList.innerHTML = CATEGORY_GROUPS.map(([group, items]) =>
+      `<div class="abb-multi-group"><h4>${esc(group)}</h4>` +
+      items.map(([n, s]) => `<label><input type="checkbox" value="${esc(s)}" data-name="${esc(n)}"> ${esc(n)}</label>`).join('') +
+      `</div>`).join('');
+    const catBoxes = [...catList.querySelectorAll('input')];
+    catBoxes.forEach(b => { b.checked = hyb.cats.includes(b.value); });
+    catAllChk.checked = session.get('catAll') === '1';
+    const hasCat = (c, slug) => { const k = c.dataset.cats.split(' '); return k.includes(slug) || k.includes(CAT_NORM_BY_SLUG[slug]); };
+
+    function updateCatSummary() {
+      const n = hyb.cats.length;
+      catSummary.textContent = n === 0 ? 'Category · any'
+        : n === 1 ? 'Category · ' + (catBoxes.find(b => b.value === hyb.cats[0])?.dataset.name || hyb.cats[0])
+        : `Category · ${n} selected${catAllChk.checked ? ' (all)' : ''}`;
     }
-    catSel.addEventListener('change', () => {
-      const cat = catSel.value === 'any' ? '' : catSel.value.slice(4);
-      if (isSearch) { setHyb('cat', cat); refilter(); return; }
-      chooseArchive(cat, urlLang || hyb.lang);
-    });
+    const onCatChange = () => {
+      hyb.cats = catBoxes.filter(b => b.checked).map(b => b.value);
+      session.set('cat', hyb.cats.join(','));
+      session.set('catAll', catAllChk.checked ? '1' : '');
+      updateCatSummary();
+      refilter();
+    };
+    catList.addEventListener('change', onCatChange);
+    catAllChk.addEventListener('change', onCatChange);
+    catBox.querySelector('.abb-multi-clear').addEventListener('click', () => { catBoxes.forEach(b => { b.checked = false; }); onCatChange(); });
+    dismissOnOutside(catBox, () => { catBox.open = false; });
+    updateCatSummary();
+
+    /* --- Posted date: presets or a custom range, client-side; rides in session like categories --- */
+    const dateBox = $('#abb-date'), dateSummary = dateBox.querySelector('summary'),
+          dateRadios = [...dateBox.querySelectorAll('input[type="radio"]')],
+          dateFrom = $('#abb-date-from'), dateTo = $('#abb-date-to');
+    const DAY = 86_400_000, DATE_PRESETS = { today: 0, '7d': 7, '30d': 30, '90d': 90 };
+    const startOfDay = ms => { const x = new Date(ms); x.setHours(0, 0, 0, 0); return x.getTime(); };
+    const fromISO = s => (s ? startOfDay(new Date(s + 'T00:00:00')) : 0);   // local midnight, not UTC
+    // Recomputed on every filter pass so "last 7 days" stays correct in a long-open tab
+    function dateBounds() {
+      const { preset, from, to } = hyb.date;
+      if (!dateActive()) return [0, 0];
+      if (preset === 'custom') return [fromISO(from), to ? fromISO(to) + DAY - 1 : 0];   // "to" is inclusive
+      if (preset === 'year')   return [new Date(new Date().getFullYear(), 0, 1).getTime(), 0];
+      return [startOfDay(Date.now() - (DATE_PRESETS[preset] ?? 0) * DAY), 0];
+    }
+    const fmtDay = ms => new Date(ms).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+    function updateDateSummary() {
+      const { preset, from, to } = hyb.date;
+      dateSummary.textContent =
+        !dateActive()        ? 'Posted · any'
+        : preset !== 'custom' ? 'Posted · ' + dateRadios.find(r => r.value === preset).parentElement.textContent.trim().toLowerCase()
+        : from && to          ? `Posted · ${fmtDay(fromISO(from))} – ${fmtDay(fromISO(to))}`
+        : from                ? `Posted · since ${fmtDay(fromISO(from))}`
+        :                       `Posted · until ${fmtDay(fromISO(to))}`;
+      dateBox.classList.toggle('abb-date-custom', preset === 'custom');
+    }
+    const onDateChange = () => {
+      hyb.date = { preset: dateRadios.find(r => r.checked)?.value || 'any', from: dateFrom.value, to: dateTo.value };
+      session.set('date', JSON.stringify(hyb.date));
+      updateDateSummary();
+      refilter();
+    };
+    (dateRadios.find(r => r.value === hyb.date.preset) || dateRadios[0]).checked = true;
+    dateFrom.value = hyb.date.from || ''; dateTo.value = hyb.date.to || '';
+    dateRadios.forEach(r => r.addEventListener('change', onDateChange));
+    [dateFrom, dateTo].forEach(i => i.addEventListener('change', () => {
+      dateRadios.find(r => r.value === 'custom').checked = true;    // typing a date implies "custom"
+      onDateChange();
+    }));
+    $('#abb-date-clear').addEventListener('click', () => { dateRadios[0].checked = true; dateFrom.value = dateTo.value = ''; onDateChange(); });
+    dismissOnOutside(dateBox, () => { dateBox.open = false; });
+    updateDateSummary();
+
+    /* --- Language: small archives, so read the archive; categories ride along in session --- */
     langSel.addEventListener('change', () => {
       const lang = langSel.value === 'any' ? '' : langSel.value.slice(5);
       if (isSearch) { setHyb('lang', lang); refilter(); return; }
-      chooseArchive(urlCat || hyb.cat, lang);
+      session.set('lang', '');
+      const path = lang ? `/audio-books/tag/${lang}/` : '/';
+      if (path === location.pathname) { hyb.lang = ''; refilter(); } else goTo(path);
     });
 
     qInput.addEventListener('input', applyFilters);
@@ -1286,12 +1576,13 @@
       const card = el('div', 'abb-card');
       Object.assign(card.dataset, {
         title: d.title.toLowerCase(), format: d.format,
-        lang: d.language.toLowerCase(), cats: d.catSlugs.join(' '),
+        lang: d.language.toLowerCase(), cats: d.catKeys.join(' '),
         kbps: String(d.kbps),
         gr: 'pending',
         abbTitle: d.title,
         order: cardSeq++,
-        mb: String(d.mb)
+        mb: String(d.mb),
+        ts: String(parsePosted(d.posted))
       });
       card.innerHTML = `
         <div class="abb-row">
@@ -1336,15 +1627,15 @@
       return card;
     }
 
-  // Abridged/Unabridged lives only in the full description, which list pages don't carry,
-  // so it can be badged only once a card's book page has been fetched.
-  function markAbridged(card, doc) {
-    if (card.dataset.abridged !== undefined) return;
-    const raw = doc.querySelector('.is_abridged')?.textContent.trim() || '';
-    const val = raw ? raw[0].toUpperCase() + raw.slice(1).toLowerCase() : '';
-    card.dataset.abridged = val;
-    if (val) card.querySelector('.abb-badges').insertAdjacentHTML('beforeend', badge(val));
-  }
+    // Abridged/Unabridged lives only in the full description, which list pages don't carry,
+    // so it can be badged only once a card's book page has been fetched.
+    function markAbridged(card, doc) {
+      if (card.dataset.abridged !== undefined) return;
+      const raw = doc.querySelector('.is_abridged')?.textContent.trim() || '';
+      const val = raw ? raw[0].toUpperCase() + raw.slice(1).toLowerCase() : '';
+      card.dataset.abridged = val;
+      if (val) card.querySelector('.abb-badges').insertAdjacentHTML('beforeend', badge(val));
+    }
 
     async function loadDetails(card, url) {
       const panel = card.querySelector('.abb-panel');
@@ -1382,21 +1673,24 @@
       return added;
     }
 
-    /* --- Filtering: title + format always; hybrid lang/cat when set --- */
+    /* --- Filtering --- */
     function applyFilters() {
       const q = qInput.value.trim().toLowerCase();
       const fmt = fmtSel.value === 'any' ? '' : fmtSel.value.slice(4);
       const bit = bitSel.value === 'any' ? null : BITRATE_TEST[bitSel.value.slice(4)];
       const gr = grSel.value === 'any' ? null : GR_TEST[grSel.value.slice(3)];
+      const [dLo, dHi] = dateBounds();
       const cards = [...grid.children];
       let visible = 0;
       cards.forEach(c => {
-      const ok = (!q || c.dataset.title.includes(q)) &&
-        (!fmt || (fmt === 'other' ? !KNOWN_FORMATS.includes(c.dataset.format) : c.dataset.format === fmt)) &&
-        (!bit || bit(Number(c.dataset.kbps))) &&
-        (!gr || gr(c.dataset)) &&
-        (!hyb.lang || c.dataset.lang === hyb.lang) &&
-        (!hyb.cat || c.dataset.cats.split(' ').includes(hyb.cat));
+        const ok = (!q || c.dataset.title.includes(q)) &&
+          (!fmt || (fmt === 'other' ? !KNOWN_FORMATS.includes(c.dataset.format) : c.dataset.format === fmt)) &&
+          (!bit || bit(Number(c.dataset.kbps))) &&
+          (!dLo || !+c.dataset.ts || +c.dataset.ts >= dLo) &&      // undated posts always pass
+          (!dHi || !+c.dataset.ts || +c.dataset.ts <= dHi) &&
+          (!gr || gr(c.dataset)) &&
+          (!hyb.lang || c.dataset.lang === hyb.lang) &&
+          (!hyb.cats.length || (catAllChk.checked ? hyb.cats.every(s => hasCat(c, s)) : hyb.cats.some(s => hasCat(c, s))));
         c.style.display = ok ? '' : 'none';
         if (ok) visible++;
       });
@@ -1465,9 +1759,19 @@
 
     const visibleCount = () => [...grid.children].filter(c => c.style.display !== 'none').length;
 
+    // Listings run newest-first, so once the oldest loaded post predates the range start, no later
+    // page can match. Search results aren't date-ordered, so they're exempt and just keep paging.
+    function pastDateRange() {
+      const [lo] = dateBounds();
+      if (!lo || isSearch) return false;
+      const stamps = [...grid.children].map(c => +c.dataset.ts).filter(Boolean);
+      return stamps.length > 0 && Math.min(...stamps) < lo;
+    }
+
     // Is another page needed right now?
     function needMore() {
       if (!infChk.checked || !nextPage || lastError || burstPaused) return false;
+      if (pastDateRange()) return false;
       if (wantsGoodreads() && pendingGoodreads() >= 18) return false;
       if (sentinelVisible) return true;                        // reader is at the bottom
       return hybridActive() && visibleCount() < FILL_TARGET;   // hidden-filter fill
@@ -1508,6 +1812,7 @@
         : lastError      ? 'Load failed — click to retry'
         : burstPaused    ? `Checked ${checked} pages (up to page ${lastPage}), ${found} matching — click to check ${MAX_BURST_PAGES} more`
         : loading        ? (hybridActive() ? `Searching… page ${lastPage}, ${found} matching so far` : 'Loading…')
+        : pastDateRange() ? '— No older posts in this date range —'
         : !nextPage      ? '— End of results —'
         : 'Scroll for more';
     }
@@ -1563,6 +1868,31 @@
     card.querySelectorAll('.navbar h3').forEach(h => h.replaceWith(el('p', 'abb-note', h.textContent.trim())));
   }
 
+  // Book page: the torrent table opens with the announce URL and a dozen "Tracker:" rows.
+  // Fold those into a collapsed <details>; the remaining rows (info hash, size, files…)
+  // stay visible as their own table. Rows are moved, not copied, so collectLinks() still
+  // finds them when it builds the magnet link.
+  function collapseTrackers(table) {
+    const isTracker = tr => {
+      const first = strip(tr.cells[0]?.textContent || '');
+      return /^(announce url|tracker):?$/i.test(first) || (tr.cells.length === 1 && /backup trackers/i.test(first));
+    };
+    const rows = [...table.querySelectorAll('tr')].filter(isTracker);
+    if (rows.length < 2) return;                                 // one announce row isn't worth hiding
+
+    const inner = el('table', 'abb-torrent abb-tracker-table');
+    inner.appendChild(el('tbody')).append(...rows);
+    const urls = new Set(rows.map(r => strip(r.cells[1]?.textContent || '')).filter(Boolean));
+
+    const box = el('details', 'abb-trackers');
+    const sum = el('summary');
+    sum.innerHTML = `<span class="abb-caret">▶</span> Tracker information` +
+                    `<span class="abb-tracker-count">${urls.size} tracker${urls.size === 1 ? '' : 's'}</span>`;
+    box.append(sum, inner);
+    table.before(box);
+    if (!table.querySelector('tr')) table.remove();              // nothing but trackers? drop the empty shell
+  }
+
   function initContentMode(content) {
     document.body.classList.add('abb-content');
     const root = el('div');
@@ -1592,8 +1922,6 @@
 
     /* --- book page extras --- */
     document.body.classList.add('abb-book');
-    post.style.cssText += ';width:auto!important;max-width:none!important;float:none!important';
-    post.querySelector('.postContent').style.cssText += ';width:auto!important;max-width:none!important;float:none!important';
     desc.replaceWith(buildDescription(desc, location.href, { newTab: false, full: true }));
 
     const table = post.querySelector('.postContent table');
@@ -1605,6 +1933,7 @@
       attachGoodreads(gr, post.querySelector('.postTitle h1')?.textContent || document.title);
       row.appendChild(gr);
       table.before(row);
+      collapseTrackers(table);
     }
     post.querySelectorAll('span[id^="more-"]').forEach(s => s.closest('p')?.remove());
     post.querySelectorAll('a[href*="ddeaatr"], a[href^="/dl-14"], a[href^="/dodl"], img[src*="/images/trr"]')
@@ -1616,6 +1945,48 @@
      10b. Forum (SMF 1.1, "Headline" theme): our header on top, SMF's own
           markup kept underneath and recoloured; SMF's duplicate chrome removed.
      ===================================================================== */
+
+  // Forum search as a drop-down under its button, mirroring the header search. SMF 1.1's quick
+  // search POSTs one field ("search") to index.php?action=search2; the full Search page (boards,
+  // author, date options) stays reachable as "Advanced →". The panel is a <span>, not a <div>,
+  // so the forum's generic div reset rule leaves it alone.
+  function buildForumSearch(searchUrl) {
+    const u = new URL(searchUrl, location.href);
+    const action = /index\.php/.test(u.pathname)
+      ? `${u.pathname}?action=search2`
+      : `${u.pathname.match(/^.*?\/forum\//)?.[0] || '/forum/'}index.php?action=search2`;   // pretty-URL fallback
+    // The advanced form (boards, author, date range, order) is the same action with the "advanced" flag:
+    // /forum/search/?advanced;search=   or   index.php?action=search;advanced;search=
+    const advancedUrl = /index\.php/.test(u.pathname)
+      ? `${u.pathname}?action=search;advanced;search=`
+      : `${u.pathname.replace(/\/?$/, '/')}?advanced;search=`;
+
+    const form = el('form', 'abb-forum-search');
+    form.method = 'post';
+    form.action = action;
+    form.innerHTML = `
+      <button type="button" class="abb-btn abb-forum-search-btn" aria-expanded="false">Search forums</button>
+      <span class="abb-forum-search-pop">
+        <input class="abb-input" type="search" name="search" maxlength="100" placeholder="Search the forums…" autocomplete="off">
+        <input type="hidden" name="advanced" value="0">
+        <button type="submit" class="abb-btn abb-forum-search-go">Go</button>
+        <a class="abb-adv" href="${esc(advancedUrl)}" title="Advanced search: boards, author, date range, order">Advanced →</a>
+      </span>`;
+
+    const btn = form.querySelector('.abb-forum-search-btn'), input = form.querySelector('input[type="search"]');
+    const isOpen = () => form.classList.contains('is-open');
+    const setOpen = open => {
+      form.classList.toggle('is-open', open);
+      btn.setAttribute('aria-expanded', String(open));
+      if (open) input.focus();
+    };
+    btn.addEventListener('click', () => (isOpen() && input.value.trim()) ? form.requestSubmit() : setOpen(!isOpen()));
+    form.addEventListener('submit', e => { if (!input.value.trim()) { e.preventDefault(); input.focus(); } });
+    input.addEventListener('keydown', e => { if (e.key === 'Escape') setOpen(false); });
+    dismissOnOutside(form, () => setOpen(false));
+    return form;
+  }
+
   function initForumMode() {
     document.documentElement.classList.add('abb-forum-html');
     document.body.classList.add('abb-forum');
@@ -1627,28 +1998,115 @@
     root.append(buildHeader(), body);
     document.body.appendChild(root);
 
-    // SMF's menu duplicates our header. Keep only the items ours doesn't have (forum
-    // accounts are separate from /member/login: Login/Register for guests, Profile /
-    // Messages / Logout once signed in) as a small chip row above the board list.
-    const nav = body.querySelector('#toolbar #nav, #nav');
-    if (nav) {
-      const keep = [...nav.querySelectorAll('a')].filter(a => !/^(torrents|forum home|home)$/i.test(strip(a.textContent)));
-      if (keep.length) {
-        const tools = el('div', 'abb-forum-tools');
-        keep.forEach(a => { a.className = 'abb-btn'; tools.appendChild(a); });
-        body.prepend(tools);
-      }
-    }
-    body.querySelectorAll('#toolbar, #footer, #ajax_in_progress, .yahoo').forEach(n => n.remove());
+    // Button row, top right: Forum Home plus the SMF menu items our header lacks. Forum
+    // accounts are separate from /member/login, so guests get Login/Register here and
+    // members get Profile / My Messages / Logout. Torrents & Forum Home in #nav duplicate ours.
+    const tools = el('div', 'abb-forum-tools');
+    const home = el('a', 'abb-btn', 'Forum Home');
+    home.href = '/forum/';
+    tools.appendChild(home);
+    body.querySelectorAll('#nav a').forEach(a => {
+      const label = strip(a.textContent);
+      if (/^(torrents|forum home|home)$/i.test(label)) return;
+      if (/^search$/i.test(label)) { tools.appendChild(buildForumSearch(a.href)); return; }   // becomes a drop-down
+      a.className = 'abb-btn';
+      tools.appendChild(a);
+    });
+    body.prepend(tools);
 
-    // "Welcome Guest, please login or register." bar — pure noise for guests.
-    // (A signed-in user's status line is left in place, just recoloured.)
+    // Duplicate chrome: banner/logo and the (now harvested) menu strip
+    body.querySelectorAll('#header, #top_section, .forumtitle, #logo, #siteslogan, #logobox, #nav')
+      .forEach(n => n.remove());
+
+    // The "AudioBook Bay Forum" title link is now a button. On the index it stands alone, so it
+    // goes (with its emptied heading); on boards it is the first breadcrumb and stays put.
+    const crumbs = body.querySelectorAll('a.nav');
+    if (crumbs.length === 1 && /\/forum\/?$/.test(crumbs[0].href)) {
+      const heading = crumbs[0].parentElement;
+      crumbs[0].remove();
+      if (!heading.textContent.trim() && !heading.querySelector('img, input')) heading.remove();
+    }
+	
+    // Topic pages: SMF prints "« previous  next »" (older / newer topic in this board) as its own
+    // right-aligned line under the breadcrumb. Fold the links into the breadcrumb row instead.
+    const prev = body.querySelector('a[href*="prev_next=prev"]'), next = body.querySelector('a[href*="prev_next=next"]');
+    const trail = body.querySelector('a.nav')?.closest('h1, div, td, p');
+    if (trail && (prev || next)) {
+      const holder = (prev || next).closest('td, div, p');
+      const topicNav = el('span', 'abb-topic-nav');
+      if (prev) { prev.textContent = '‹ Previous topic'; prev.title = 'Older topic in this board'; topicNav.appendChild(prev); }
+      if (next) { next.textContent = 'Next topic ›';     next.title = 'Newer topic in this board'; topicNav.appendChild(next); }
+      const trailWrap = el('span', 'abb-crumb-trail');
+      trailWrap.append(...trail.childNodes);
+      trail.classList.add('abb-crumbs');
+      trail.append(trailWrap, topicNav);
+      // The line the links came from is now empty — remove it, and any row/table that empties with it
+      let n = holder;
+      while (n && n !== body && !n.textContent.trim() && !n.querySelector('img, input, a')) { const p = n.parentElement; n.remove(); n = p; }
+    }
+
+    // "Pages: [1] 2 3  Go Down" + Reply / Notify strips (top and bottom): tag them so CSS can pull them in
+    [...body.querySelectorAll('td, div')]
+      .filter(c => !c.querySelector('table') && /^Pages:/i.test(strip(c.textContent)))
+      .forEach(c => c.closest('table, div')?.classList.add('abb-topic-bar'));
+
+
+    // "Welcome Guest, please login or register." duplicates the Login/Register buttons.
+    // A signed-in member's status block is left in place, just recoloured.
     const isWelcome = n => /^welcome guest,?\s*please login or register\.?$/i.test(strip(n.textContent));
     let w = [...body.querySelectorAll('*')].filter(isWelcome).pop();          // deepest match
     if (w) {
       while (w.parentElement !== body && isWelcome(w.parentElement)) w = w.parentElement;
       w.remove();
     }
+	
+    // Two-column pages (profile, personal messages). SMF builds them as a bare <table> with a
+    // fixed nav cell and a main cell whose tables are centred and shrink-wrapped, leaving voids
+    // either side. Boxes are class "bordercolor" or "tborder" depending on template, so find the
+    // sidebar by its heading text and the sibling cell that holds the content.
+    const sideTable = [...body.querySelectorAll('td > table')].find(t => {
+      const head = t.querySelector('tr:first-child td, tr:first-child th');
+      const row = t.parentElement.parentElement;
+      return head && /^(profile info|messages)$/i.test(strip(head.textContent)) &&
+             row.tagName === 'TR' &&
+             [...row.children].some(c => c !== t.parentElement && c.querySelector('table'));
+    });
+    if (sideTable) {
+      const side = sideTable.parentElement, row = side.parentElement, cells = [...row.children];
+      const main = cells.filter(c => c !== side && c.querySelector('table')).pop();
+      cells.forEach(c => { if (c !== side && c !== main && !c.textContent.trim() && !c.querySelector('img, input')) c.remove(); }); // spacer cells
+      row.closest('table').classList.add('abb-two-col');
+      side.classList.add('abb-side');
+      main.classList.add('abb-main');
+
+      // Legacy sizing hints (width="420", width="150", align="center") fight the grid — drop them
+      [side, main].forEach(cell => {
+        cell.removeAttribute('width');
+        cell.querySelectorAll('table[width], table[align], td[width]').forEach(n => { n.removeAttribute('width'); n.removeAttribute('align'); });
+        cell.querySelectorAll('table[cellspacing], table[cellpadding]').forEach(t => { t.removeAttribute('cellspacing'); t.removeAttribute('cellpadding'); });
+      });
+
+      // The summary's "Picture/Text" column is empty for members with no avatar or personal text — drop it
+      const pic = [...main.querySelectorAll('td')].find(td => /^picture\s*\/\s*text$/i.test(strip(td.textContent)));
+      if (pic) {
+        const tbl = pic.closest('table'), idx = [...pic.parentElement.children].indexOf(pic);
+        const rows = [...tbl.querySelectorAll(':scope > tbody > tr, :scope > tr')];
+        const col = rows.map(r => r.children.length > idx ? r.children[idx] : null).filter(Boolean);
+        if (col.every(c => c === pic || (!c.textContent.trim() && !c.querySelector('img')))) {
+          col.forEach(c => c.remove());
+          rows.forEach(r => [...r.children].forEach(c => { if (c.colSpan > 1) c.colSpan = 1; }));   // colspan="2" rows → single column
+        }
+      }
+    }
+
+    // Safety net: any cell the theme still paints with one of its header sprites goes dark,
+    // whatever class it happens to use (SMF 1.1 mixes titlebg/catbg/catbg3 across templates).
+    body.querySelectorAll('td, th, tr').forEach(n => {
+      if (/Themes\//.test(getComputedStyle(n).backgroundImage)) {
+        n.style.setProperty('background', 'var(--secondary)', 'important');
+        n.style.setProperty('color', 'var(--foreground)', 'important');
+      }
+    });
   }
 
   /* =====================================================================
