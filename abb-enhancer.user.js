@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AudiobookBay Enhancer
 // @namespace    https://github.com/Mhs11294/audiobookbay-enhancer
-// @version      0.2.0
+// @version      0.2.1
 // @description  Card list view, infinite scroll, category/language/format/bitrate filters, Goodreads ratings & links, Colophon-inspired themes for ABB
 // @license      MIT
 // @homepageURL  https://github.com/Mhs11294/audiobookbay-enhancer
@@ -104,40 +104,30 @@
   /* =====================================================================
      2. Site vocabulary
      ===================================================================== */
-  // Site taxonomy, as shown in its sidebar lists plus terms it assigns but doesn't list.
+  // Site taxonomy — the full list from the advanced-search "exclude categories" form, A–Z.
   // [display name, URL slug under /audio-books/type/]
-  const CATEGORY_GROUPS = [
-    ['Age', [
-      ['Children', 'children'], ['Teen & Young Adult', 'teen-young-adult'], ['Adults', 'adults'],
-    ]],
-    ['Category', [
-      ['(Post)apocalyptic', 'postapocalyptic'], ['Action', 'action'], ['Adventure', 'adventure'],
-      ['Art', 'art'], ['Autobiography & Biographies', 'autobiography-biographies'],
-      ['Business', 'business'], ['Computer', 'computer'], ['Contemporary', 'contemporary'],
-      ['Crime', 'crime'], ['Detective', 'detective'], ['Doctor Who', 'doctor-who-sci-fi'],
-      ['Education', 'education'], ['Fantasy', 'fantasy'], ['General Fiction', 'general-fiction'],
-      ['Historical Fiction', 'historical-fiction'], ['History', 'history'], ['Horror', 'horror'],
-      ['Humor', 'humor'], ['Lecture', 'lecture'], ['LGBT', 'lgbt'], ['Light Novel', 'light-novel'],
-      ['Literature', 'literature'], ['LitRPG', 'litrpg'],
-      ['Misc. Non-fiction', 'general-non-fiction'], ['Mystery', 'mystery'],
-      ['Paranormal', 'paranormal'], ['Plays & Theater', 'plays-theater'],
-      ['Poetry', 'poetry'], ['Political', 'political'],
-      ['Radio Productions', 'radio-productions'], ['Romance', 'romance'],
-      ['Sci-Fi', 'sci-fi'], ['Science', 'science'], ['Self-help', 'self-help'],
-      ['Spiritual & Religious', 'spiritual'], ['Sport & Recreation', 'sports'],
-      ['Suspense', 'suspense'], ['Thriller', 'thriller'], ['True Crime', 'true-crime'],
-      ['Tutorial', 'tutorial'], ['Westerns', 'westerns'], ['Zombies', 'zombies'], ['Other', 'other'],
-    ]],
-    ['Modifiers', [
-      ['Anthology', 'anthology'], ['Bestsellers', 'bestsellers'], ['Classic', 'classic'],
-      ['Documentary', 'documentary'], ['Full Cast', 'full-cast'], ['Libertarian', 'libertarian'],
-      ['Military', 'military'], ['Novel', 'novel'], ['Short Story', 'short-story'],
-    ]],
-    ['Unlisted', [
-      ['Gay', 'gay'],
-    ]],
+  const CATEGORIES = [
+    ['(Post)apocalyptic', 'postapocalyptic'], ['Action', 'action'], ['Adults', 'adults'],
+    ['Adventure', 'adventure'], ['Anthology', 'anthology'], ['Art', 'art'],
+    ['Autobiography & Biographies', 'autobiography-biographies'], ['Bestsellers', 'bestsellers'],
+    ['Business', 'business'], ['Children', 'children'], ['Classic', 'classic'],
+    ['Computer', 'computer'], ['Contemporary', 'contemporary'], ['Crime', 'crime'],
+    ['Detective', 'detective'], ['Doctor Who', 'doctor-who-sci-fi'], ['Documentary', 'documentary'],
+    ['Education', 'education'], ['Fantasy', 'fantasy'], ['Full Cast', 'full-cast'], ['Gay', 'gay'],
+    ['General Fiction', 'general-fiction'], ['Historical Fiction', 'historical-fiction'],
+    ['History', 'history'], ['Horror', 'horror'], ['Humor', 'humor'], ['Lecture', 'lecture'],
+    ['Lesbian', 'lesbian'], ['LGBT', 'lgbt'], ['Libertarian', 'libertarian'],
+    ['Light Novel', 'light-novel'], ['Literature', 'literature'], ['LitRPG', 'litrpg'],
+    ['Military', 'military'], ['Misc. Non-fiction', 'general-non-fiction'], ['Mystery', 'mystery'],
+    ['Novel', 'novel'], ['Other', 'other'], ['Paranormal', 'paranormal'],
+    ['Plays & Theater', 'plays-theater'], ['Poetry', 'poetry'], ['Political', 'political'],
+    ['Radio Productions', 'radio-productions'], ['Romance', 'romance'], ['Sci-Fi', 'sci-fi'],
+    ['Science', 'science'], ['Self-help', 'self-help'], ['Sex Scenes', 'sex-scenes'],
+    ['Short Story', 'short-story'], ['Spiritual & Religious', 'spiritual'],
+    ['Sport & Recreation', 'sports'], ['Suspense', 'suspense'], ['Teen & Young Adult', 'teen-young-adult'],
+    ['Thriller', 'thriller'], ['True Crime', 'true-crime'], ['Tutorial', 'tutorial'],
+    ['Violence', 'violence'], ['Westerns', 'westerns'], ['Zombies', 'zombies'],
   ];
-  const CATEGORIES = CATEGORY_GROUPS.flatMap(([, items]) => items);   // flat list, used by the parser maps
   const LANGUAGES = ['english', 'dutch', 'french', 'spanish', 'german', 'portuguese'];
   const KNOWN_FORMATS = ['mp3', 'm4b', 'm4a', 'flac', 'ogg'];
   const FORMATS = [...KNOWN_FORMATS.map(f => [f, f.toUpperCase()]), ['other', 'Other (MIXED, …)']];
@@ -1430,10 +1420,9 @@
     /* --- Category: multi-select checkbox panel, always client-side --- */
     const catBox = $('#abb-cat'), catSummary = catBox.querySelector('summary'),
           catList = catBox.querySelector('.abb-multi-list'), catAllChk = $('#abb-cat-all');
-    catList.innerHTML = CATEGORY_GROUPS.map(([group, items]) =>
-      `<div class="abb-multi-group"><h4>${esc(group)}</h4>` +
-      items.map(([n, s]) => `<label><input type="checkbox" value="${esc(s)}" data-name="${esc(n)}"> ${esc(n)}</label>`).join('') +
-      `</div>`).join('');
+    catList.innerHTML = `<div class="abb-multi-group">` +
+      CATEGORIES.map(([n, s]) => `<label><input type="checkbox" value="${esc(s)}" data-name="${esc(n)}"> ${esc(n)}</label>`).join('') +
+      `</div>`;
     const catBoxes = [...catList.querySelectorAll('input')];
     catBoxes.forEach(b => { b.checked = hyb.cats.includes(b.value); });
     catAllChk.checked = session.get('catAll') === '1';
