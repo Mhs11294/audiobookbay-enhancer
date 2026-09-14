@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AudiobookBay Enhancer
 // @namespace    https://github.com/Mhs11294/audiobookbay-enhancer
-// @version      0.2.3
+// @version      0.2.4
 // @description  Card list view, infinite scroll, category/language/format/bitrate filters, Goodreads ratings & links, Colophon-inspired themes for ABB
 // @license      MIT
 // @homepageURL  https://github.com/Mhs11294/audiobookbay-enhancer
