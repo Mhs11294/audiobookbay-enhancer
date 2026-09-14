@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AudiobookBay Enhancer
 // @namespace    https://github.com/Mhs11294/audiobookbay-enhancer
-// @version      0.2.2
+// @version      0.2.3
 // @description  Card list view, infinite scroll, category/language/format/bitrate filters, Goodreads ratings & links, Colophon-inspired themes for ABB
 // @license      MIT
 // @homepageURL  https://github.com/Mhs11294/audiobookbay-enhancer
@@ -180,7 +180,8 @@
   });
   const local   = storage(() => localStorage);              // shared with Colophon
   const session = storage(() => sessionStorage, 'abb-hyb-'); // hybrid filters between pages
-  const HYB_KEYS = ['lang', 'cat', 'catAll', 'date'];
+  const presetStore = storage(() => localStorage, 'abb-presets-'); // saved filter sets, survive the session
+  const HYB_KEYS = ['lang', 'cat', 'catEx', 'catAll', 'date', 'local'];
   const clearHybridFilters = () => HYB_KEYS.forEach(k => session.set(k, ''));   // set('') removes the key
 
   // Close a popover on outside pointer or Escape.
@@ -751,6 +752,44 @@
     #abb-root .abb-multi-apply:disabled, #abb-root .abb-multi-apply:disabled:hover {
       opacity: .45; cursor: not-allowed; filter: none;
     }
+	
+    /* category exclude toggle */
+    .abb-multi-list label { position: relative; padding-right: 28px; }
+    #abb-root .abb-cat-ex {
+      position: absolute; right: 4px; top: 50%; transform: translateY(-50%); width: 18px; height: 18px; padding: 0;
+      border-radius: 50%; border: 1px solid var(--border); background: transparent; color: var(--muted-foreground);
+      font: inherit; font-size: 13px; line-height: 16px; text-align: center; cursor: pointer; opacity: 0.2;
+    }
+    #abb-root .abb-multi-list label:hover .abb-cat-ex, #abb-root .abb-multi-list label.is-ex .abb-cat-ex { opacity: 1; }
+    #abb-root .abb-cat-ex:hover { border-color: #e5484d; color: #e5484d; }
+    .abb-multi-list label.is-ex { color: #e5484d; }
+    .abb-multi-list label.is-ex > span { text-decoration: line-through; }
+    .abb-multi-list label.is-ex input { opacity: .35; }
+    #abb-root .abb-multi-list label.is-ex .abb-cat-ex { background: #e5484d; border-color: #e5484d; color: #fff; }
+
+    /* saved filter sets */
+    .abb-presets > summary { min-width: 120px; }
+    .abb-presets .abb-multi-panel { width: 340px; }
+    .abb-preset-list { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; max-height: 50vh; overflow-y: auto; }
+    .abb-preset { display: flex; align-items: stretch; gap: 4px; }
+    #abb-root .abb-preset-go {
+      flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left;
+      padding: 8px 10px; border-radius: 8px; border: 1px solid transparent; background: transparent; color: inherit; font: inherit; cursor: pointer;
+    }
+    #abb-root .abb-preset-go:hover { background: var(--secondary); border-color: var(--border); }
+    .abb-preset-go strong { font-size: 13.5px; font-weight: 600; }
+    .abb-preset-go small { font-size: 11.5px; color: var(--muted-foreground); line-height: 1.35; overflow-wrap: anywhere; }
+    #abb-root .abb-preset-upd, #abb-root .abb-preset-del {
+      flex: none; width: 28px; border-radius: 8px; border: 1px solid transparent; background: transparent;
+      color: var(--muted-foreground); font-size: 15px; cursor: pointer;
+    }
+    #abb-root .abb-preset-upd:hover { color: var(--brand); border-color: var(--border); }
+    #abb-root .abb-preset-del:hover { color: #e5484d; border-color: var(--border); }
+    .abb-preset-empty { font-size: 12.5px; color: var(--muted-foreground); padding: 6px 2px 8px; }
+    .abb-preset-new { display: flex; gap: 8px; border-top: 1px solid var(--border); padding-top: 10px; }
+    .abb-preset-new .abb-input { flex: 1 1 auto; min-width: 0; }
+    #abb-root .abb-preset-new .abb-multi-apply { flex: none; width: auto; padding: 0 16px !important; }
+
     .abb-date-range input[type="date"]:invalid { border-color: #e5484d !important; }   /* hand-typed future date */
 
     /* two-column pages (profile, personal messages) — cells tagged by initForumMode */
@@ -1089,7 +1128,7 @@
     ['n1k',  '1k+ ratings',           c => c.gr === 'ok' && +c.grCount >= 1000],
     ['n10k', '10k+ ratings',          c => c.gr === 'ok' && +c.grCount >= 10000],
     ['new',  'Under 100 ratings',     c => c.gr === 'ok' && +c.grCount < 100],
-    ['miss', 'Not found on Goodreads', c => c.gr === 'miss'],
+    ['miss', 'Not found', c => c.gr === 'miss'],
   ];
   const GR_TEST = Object.fromEntries(GR_FILTERS.map(([k, , t]) => [k, t]));
   const grVisible = new IntersectionObserver(entries =>
@@ -1475,6 +1514,16 @@
         </div>
       </details>
       <select class="abb-input" id="abb-sort"></select>
+      <details class="abb-multi abb-presets" id="abb-presets">
+        <summary class="abb-input">User-specified presets</summary>
+        <div class="abb-multi-panel">
+          <div class="abb-preset-list"></div>
+          <div class="abb-preset-new">
+            <input class="abb-input" type="text" id="abb-preset-name" placeholder="Name this filter set…" maxlength="40">
+            <button type="button" class="abb-btn abb-multi-apply" id="abb-preset-save">Save</button>
+          </div>
+        </div>
+      </details>
       <label class="abb-switch"><input type="checkbox" id="abb-inf"> ∞ Scroll</label>
       <label class="abb-switch"><input type="checkbox" id="abb-grt"> Goodreads titles</label>
       <span class="abb-count"></span>`;
@@ -1494,17 +1543,18 @@
     /* --- Hybrid (client-side) filters: ride along in sessionStorage between pages --- */
     const hyb = {
       lang: urlLang ? '' : (session.get('lang') || ''),
-      cats: (session.get('cat') || '').split(',').filter(Boolean),
+      cats:   (session.get('cat')   || '').split(',').filter(Boolean),
+      exCats: (session.get('catEx') || '').split(',').filter(Boolean),
       date: (() => { try { return JSON.parse(session.get('date') || '{}'); } catch { return {}; } })(),
     };
-    if (urlCat && !hyb.cats.includes(urlCat)) hyb.cats.push(urlCat);   // arrived via a site category link
+    if (urlCat && !hyb.cats.includes(urlCat)) { hyb.cats.push(urlCat); hyb.exCats = hyb.exCats.filter(s => s !== urlCat); }
     const setHyb = (k, v) => { hyb[k] = v; session.set(k, v); };
     if (urlLang) session.set('lang', ''); // a built-in URL filter supersedes the hybrid one
     const dateActive = () => {
       const { preset, from, to } = hyb.date;
       return Boolean(preset && preset !== 'any' && (preset !== 'custom' || from || to));
     };
-    const hybridActive = () => Boolean(hyb.lang || hyb.cats.length || dateActive());
+    const hybridActive = () => Boolean(hyb.lang || hyb.cats.length || hyb.exCats.length || dateActive());
 
     // Old date ranges come from the site's search rather than from paging back (see the Posted
     // block). Such a filter only makes sense on its month-search page: arriving anywhere else with
@@ -1535,6 +1585,17 @@
       BITRATES.map(([k, l]) => ['bit:' + k, 'Bitrate · ' + l]), 'any');
     fillSelect(grSel, 'Goodreads · any', GR_FILTERS.map(([k, l]) => ['gr:' + k, 'Goodreads · ' + l]), 'any');
 
+    // Client-only choices a saved preset parked in session for this page (see applyPreset) — consumed once
+    try {
+      const local = JSON.parse(session.get('local') || 'null');
+      if (local) {
+        [[fmtSel, local.fmt], [bitSel, local.bit], [grSel, local.gr]]
+          .forEach(([sel, v]) => { if ([...sel.options].some(o => o.value === v)) sel.value = v; });
+        qInput.value = local.q || '';
+      }
+    } catch { /* ignore */ }
+    session.set('local', '');
+
     // Client-only filters: hide/show, then let the pump top up if the sentinel is now visible
     const localFilter = () => { applyFilters(); pump(); };
     fmtSel.addEventListener('change', localFilter);
@@ -1556,33 +1617,54 @@
     const refilter = () => { applyFilters(); burst = 0; burstPaused = false; pump(); };
     const goTo = href => { location.href = href; };
 
-    /* --- Category: multi-select checkbox panel, always client-side --- */
+    /* --- Category: multi-select panel, always client-side. Each row is include (checkbox) or exclude
+           (the "−" toggle): "Sci-Fi or Thriller, but nothing that is also Fantasy". --- */
     const catBox = $('#abb-cat'), catSummary = catBox.querySelector('summary'),
           catList = catBox.querySelector('.abb-multi-list'), catAllChk = $('#abb-cat-all');
     catList.innerHTML = `<div class="abb-multi-group">` +
-      CATEGORIES.map(([n, s]) => `<label><input type="checkbox" value="${esc(s)}" data-name="${esc(n)}"> ${esc(n)}</label>`).join('') +
+      CATEGORIES.map(([n, s]) => `<label><input type="checkbox" value="${esc(s)}" data-name="${esc(n)}"> <span>${esc(n)}</span>` +
+        `<button type="button" class="abb-cat-ex" title="Exclude ${esc(n)}" aria-label="Exclude ${esc(n)}">−</button></label>`).join('') +
       `</div>`;
     const catBoxes = [...catList.querySelectorAll('input')];
-    catBoxes.forEach(b => { b.checked = hyb.cats.includes(b.value); });
+    const catName = slug => catBoxes.find(b => b.value === slug)?.dataset.name || slug;
+    const syncCatBoxes = () => catBoxes.forEach(b => {
+      const ex = hyb.exCats.includes(b.value);
+      b.checked = !ex && hyb.cats.includes(b.value);
+      b.closest('label').classList.toggle('is-ex', ex);
+    });
+    syncCatBoxes();
     catAllChk.checked = session.get('catAll') === '1';
     const hasCat = (c, slug) => { const k = c.dataset.cats.split(' '); return k.includes(slug) || k.includes(CAT_NORM_BY_SLUG[slug]); };
 
     function updateCatSummary() {
-      const n = hyb.cats.length;
-      catSummary.textContent = n === 0 ? 'Category · any'
-        : n === 1 ? 'Category · ' + (catBoxes.find(b => b.value === hyb.cats[0])?.dataset.name || hyb.cats[0])
-        : `Category · ${n} selected${catAllChk.checked ? ' (all)' : ''}`;
+      const n = hyb.cats.length, x = hyb.exCats.length;
+      const inc = !n ? '' : n === 1 ? catName(hyb.cats[0]) : `${n} selected${catAllChk.checked ? ' (all)' : ''}`;
+      const exc = !x ? '' : x === 1 ? `− ${catName(hyb.exCats[0])}` : `− ${x} excluded`;
+      catSummary.textContent = 'Category · ' + ([inc, exc].filter(Boolean).join(' ') || 'any');
     }
-    const onCatChange = () => {
-      hyb.cats = catBoxes.filter(b => b.checked).map(b => b.value);
+    const saveCats = () => {
       session.set('cat', hyb.cats.join(','));
+      session.set('catEx', hyb.exCats.join(','));
       session.set('catAll', catAllChk.checked ? '1' : '');
-      updateCatSummary();
-      refilter();
+      syncCatBoxes(); updateCatSummary(); refilter();
     };
-    catList.addEventListener('change', onCatChange);
-    catAllChk.addEventListener('change', onCatChange);
-    catBox.querySelector('.abb-multi-clear').addEventListener('click', () => { catBoxes.forEach(b => { b.checked = false; }); onCatChange(); });
+    catList.addEventListener('change', e => {                    // include checkbox
+      if (e.target.type !== 'checkbox') return;
+      hyb.exCats = hyb.exCats.filter(s => s !== e.target.value);   // ticking an excluded one un-excludes it
+      hyb.cats = catBoxes.filter(b => b.checked).map(b => b.value);
+      saveCats();
+    });
+    catList.addEventListener('click', e => {                     // "−" exclude toggle
+      const btn = e.target.closest('.abb-cat-ex');
+      if (!btn) return;
+      e.preventDefault();
+      const slug = btn.closest('label').querySelector('input').value;
+      hyb.exCats = hyb.exCats.includes(slug) ? hyb.exCats.filter(s => s !== slug) : [...hyb.exCats, slug];
+      hyb.cats = hyb.cats.filter(s => s !== slug);
+      saveCats();
+    });
+    catAllChk.addEventListener('change', saveCats);
+    catBox.querySelector('.abb-multi-clear').addEventListener('click', () => { hyb.cats = []; hyb.exCats = []; saveCats(); });
     dismissOnOutside(catBox, () => { catBox.open = false; });
     updateCatSummary();
 
@@ -1607,6 +1689,7 @@
       }
       return [startOfDay(Date.now() - (DATE_PRESETS[preset] ?? 0) * DAY), 0];
     }
+
     // Months to ask the site's search for. Deliberately NOT derived from dateBounds(): the presets'
     // two-day slack is for trimming cards, and would otherwise make us search the *following* month.
     function dateMonths() {
@@ -1617,6 +1700,7 @@
       }
       return monthsBetween(fromISO(from), to ? fromISO(to) : 0);      // custom: one search per month in range
     }
+
     // /?s="sep 2026"&tt=3 — tt=3 confines the search to the torrent-info table, where the creation date
     // lives. With the user's own keywords the restriction is dropped so title/description match too.
     const dateSearchUrl = ({ y, m }, kw) => {
@@ -1626,6 +1710,7 @@
       return u.href;
     };
     const dateKw = dateSearch ? dateSearch.rest : (isSearch ? curSearch : '');   // keywords to carry along
+
     // Months still to fetch after the one this page shows, newest first (empty unless on a month search)
     let dateQueue = dateSearch && dateViaSearch()
       ? dateMonths().filter(({ y, m }) => y * 12 + m < dateSearch.y * 12 + dateSearch.m)
@@ -1744,6 +1829,78 @@
       applySort();
       if (sortsByGoodreads()) { kickPendingGoodreads(); applyFilters(); }
     });
+
+    /* --- Saved filter sets. Everything the toolbar knows, under a name in localStorage. Applying one
+           writes the hybrid parts into session, parks the client-only parts (format, bitrate, Goodreads,
+           text) in a one-shot session key, and navigates to whichever page the set needs. --- */
+    const presetBox = $('#abb-presets'), presetSummary = presetBox.querySelector('summary'),
+          presetList = presetBox.querySelector('.abb-preset-list'),
+          presetName = $('#abb-preset-name'), presetSave = $('#abb-preset-save');
+    const loadPresets = () => { try { const v = JSON.parse(presetStore.get('list') || '[]'); return Array.isArray(v) ? v : []; } catch { return []; } };
+    const savePresets = list => presetStore.set('list', list.length ? JSON.stringify(list) : '');
+    const snapshot = () => ({
+      cats: hyb.cats, ex: hyb.exCats, all: catAllChk.checked, lang: urlLang || hyb.lang || '',
+      date: dateActive() ? hyb.date : null,
+      fmt: fmtSel.value, bit: bitSel.value, gr: grSel.value, sort: sortSel.value, q: qInput.value.trim(),
+    });
+    const describe = p => {
+      const bits = [];
+      if (p.cats?.length) bits.push(p.cats.map(catName).join(p.all ? ' + ' : ', '));
+      if (p.ex?.length)   bits.push('− ' + p.ex.map(catName).join(', '));
+      if (p.lang)         bits.push(p.lang[0].toUpperCase() + p.lang.slice(1));
+      [fmtSel, bitSel, grSel].forEach((sel, i) => {
+        const v = p[['fmt', 'bit', 'gr'][i]], o = [...sel.options].find(o => o.value === v);
+        if (o && v !== 'any') bits.push(o.text);
+      });
+      if (p.date) bits.push(p.date.preset === 'custom'
+        ? [p.date.from, p.date.to].filter(Boolean).join(' – ')
+        : dateRadios.find(r => r.value === p.date.preset)?.parentElement.textContent.trim().toLowerCase());
+      if (p.q) bits.push(`“${p.q}”`);
+      if (p.sort && p.sort !== 'posted') bits.push(SORTS.find(([k]) => k === p.sort)?.[1].replace('Sort · ', ''));
+      return bits.filter(Boolean).join(' · ') || 'no filters';
+    };
+    function applyPreset(p) {
+      session.set('cat', (p.cats || []).join(','));
+      session.set('catEx', (p.ex || []).join(','));
+      session.set('catAll', p.all ? '1' : '');
+      session.set('date', p.date ? JSON.stringify(p.date) : '');
+      session.set('lang', p.lang || '');                       // client-side on search pages; the tag archive elsewhere
+      session.set('local', JSON.stringify({ fmt: p.fmt, bit: p.bit, gr: p.gr, q: p.q || '' }));   // consumed once, on arrival
+      setting('sort', p.sort || 'posted');
+      hyb.date = p.date || {};
+      goTo(dateViaSearch() ? dateSearchUrl(dateMonths()[0], '')
+         : p.lang          ? `/audio-books/tag/${p.lang}/`
+         :                   '/');
+    }
+    function renderPresets() {
+      const list = loadPresets();
+      presetSummary.textContent = list.length ? `Presets · ${list.length}` : 'User-specified Presets';
+      presetList.replaceChildren(...list.map((p, i) => {
+        const row = el('div', 'abb-preset');
+        const go = el('button', 'abb-preset-go'); go.type = 'button'; go.title = 'Apply this filter set';
+        go.append(el('strong', '', p.name), el('small', '', describe(p)));
+        go.addEventListener('click', () => applyPreset(p));
+        const upd = el('button', 'abb-preset-upd', '↻'); upd.type = 'button'; upd.title = 'Overwrite with the current filters';
+        upd.addEventListener('click', () => { list[i] = { ...snapshot(), name: p.name }; savePresets(list); renderPresets(); });
+        const del = el('button', 'abb-preset-del', '×'); del.type = 'button'; del.title = 'Delete';
+        del.addEventListener('click', () => { list.splice(i, 1); savePresets(list); renderPresets(); });
+        row.append(go, upd, del);
+        return row;
+      }));
+      if (!list.length) presetList.appendChild(el('div', 'abb-preset-empty', 'No saved sets yet — set your filters, name them below and click Save.'));
+    }
+    const doSavePreset = () => {
+      const name = presetName.value.trim();
+      if (!name) { presetName.focus(); return; }
+      const list = loadPresets(), i = list.findIndex(p => p.name.toLowerCase() === name.toLowerCase());
+      const p = { ...snapshot(), name };
+      if (i >= 0) list[i] = p; else list.push(p);              // same name overwrites
+      savePresets(list); presetName.value = ''; renderPresets();
+    };
+    presetSave.addEventListener('click', doSavePreset);
+    presetName.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); doSavePreset(); } });
+    dismissOnOutside(presetBox, () => { presetBox.open = false; });
+    renderPresets();
 
     // Show Goodreads' canonical title (+ author) when we have a confident match and the toggle is on.
     function renderTitle(card) {
@@ -1876,7 +2033,8 @@
           (!dHi || !+c.dataset.ts || +c.dataset.ts <= dHi) &&
           (!gr || gr(c.dataset)) &&
           (!hyb.lang || c.dataset.lang === hyb.lang) &&
-          (!hyb.cats.length || (catAllChk.checked ? hyb.cats.every(s => hasCat(c, s)) : hyb.cats.some(s => hasCat(c, s))));
+          (!hyb.cats.length || (catAllChk.checked ? hyb.cats.every(s => hasCat(c, s)) : hyb.cats.some(s => hasCat(c, s)))) &&
+          !hyb.exCats.some(s => hasCat(c, s));
         c.style.display = ok ? '' : 'none';
         if (ok) visible++;
       });
