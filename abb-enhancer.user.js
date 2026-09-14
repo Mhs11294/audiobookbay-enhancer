@@ -130,7 +130,7 @@
   ];
   const LANGUAGES = ['english', 'dutch', 'french', 'spanish', 'german', 'portuguese'];
   const KNOWN_FORMATS = ['mp3', 'm4b', 'm4a', 'flac', 'ogg'];
-  const FORMATS = [...KNOWN_FORMATS.map(f => [f, f.toUpperCase()]), ['other', 'Other (MIXED, …)']];
+  const FORMATS = [...KNOWN_FORMATS.map(f => [f, f.toUpperCase()]), ['other', 'Other']];
   const BITRATES = [ // [key, label, test(kbps)] — 0 means not stated / "??"
     ['gt128',   'above 128 kbps', k => k > 128],
     ['128',     '128 kbps',       k => k === 128],
