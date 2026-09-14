@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AudiobookBay Enhancer
 // @namespace    https://github.com/Mhs11294/audiobookbay-enhancer
-// @version      0.2.1
+// @version      0.2.2
 // @description  Card list view, infinite scroll, category/language/format/bitrate filters, Goodreads ratings & links, Colophon-inspired themes for ABB
 // @license      MIT
 // @homepageURL  https://github.com/Mhs11294/audiobookbay-enhancer
@@ -151,7 +151,8 @@
   const POST_LINK_SEL   = 'a[href*="audio-books"], .postTitle a, h2 a, h3 a';
   const FILL_TARGET     = 24;  // keep at least this many visible cards while hybrid filters are on
   const MAX_EMPTY_PAGES = 3;   // consecutive pages that add nothing before we call it the end
-  const MAX_BURST_PAGES = 40;  // pages a hidden filter may auto-fetch before pausing for confirmation
+  const MAX_BURST_PAGES = 30;  // pages a hidden filter may auto-fetch before pausing for confirmation
+  const PAGE_GAP        = 750; // ms between auto-fetched pages while filling for a hidden filter
   const COLOPHON_KEY    = kind => `colophon:scheme-${kind}`;
   const ICON_SEARCH = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
     + 'stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">'
@@ -179,6 +180,8 @@
   });
   const local   = storage(() => localStorage);              // shared with Colophon
   const session = storage(() => sessionStorage, 'abb-hyb-'); // hybrid filters between pages
+  const HYB_KEYS = ['lang', 'cat', 'catAll', 'date'];
+  const clearHybridFilters = () => HYB_KEYS.forEach(k => session.set(k, ''));   // set('') removes the key
 
   // Close a popover on outside pointer or Escape.
   function dismissOnOutside(scope, close) {
@@ -399,6 +402,7 @@
       display: flex; flex-wrap: wrap; gap: 14px; padding: 14px; border-radius: 12px;
       background: var(--card); border: 1px solid var(--border); align-items: center;
       transition: background .15s, border-color .15s;
+      content-visibility: auto; contain-intrinsic-size: auto 190px;   /* off-screen cards skip layout & paint */
     }
     .abb-card:hover { background: var(--brand-soft); border-color: var(--accent); }
     .abb-row { display: flex; gap: 14px; align-items: center; width: 100%; }
@@ -601,6 +605,44 @@
     }
     .abb-page-card .abb-wallet-actions .abb-btn:hover { background: var(--brand-soft) !important; color: var(--brand) !important; }
 
+    /* advanced search page (rebuilt by tidyAdvancedSearch) */
+    .abb-adv-search h1 { margin-bottom: 6px; }
+    .abb-adv-intro { margin: 0 0 18px !important; max-width: 70ch; font-size: 13.5px; }
+    .abb-adv-row { display: flex; gap: 8px; margin-bottom: 16px; }
+    .abb-adv-search .abb-adv-row input[type="search"] { flex: 1 1 auto; min-width: 0; height: 40px; font-size: 14px; }
+    .abb-page-card .abb-adv-go, .abb-page-card .abb-adv-go:hover { height: 40px; margin: 0; padding: 0 20px !important; }
+    .abb-page-card .abb-adv-go:hover { filter: brightness(1.12); }
+    .abb-adv-options { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 16px; }
+    .abb-adv-label { font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted-foreground); margin-right: 4px; }
+    .abb-adv-sep { width: 1px; height: 20px; background: var(--border); margin: 0 4px; }
+    .abb-chip-check {
+      display: inline-flex; align-items: center; gap: 8px; height: 32px; padding: 0 12px; border-radius: 999px;
+      background: var(--secondary); border: 1px solid var(--border); font-size: 13px; cursor: pointer; user-select: none;
+    }
+    .abb-chip-check:hover { border-color: var(--accent); }
+    .abb-adv-search input[type="checkbox"] { accent-color: var(--brand); width: 15px; height: 15px; margin: 0; flex: none; }
+    .abb-adv-section { background: var(--secondary); border: 1px solid var(--border); border-radius: 12px; margin-bottom: 12px; }
+    .abb-adv-section > summary {
+      list-style: none; cursor: pointer; display: flex; align-items: center; gap: 10px;
+      padding: 12px 16px; font-size: 14px; font-weight: 600; user-select: none;
+    }
+    .abb-adv-section > summary::-webkit-details-marker { display: none; }
+    .abb-adv-section > summary:hover { color: var(--brand); }
+    .abb-adv-section .abb-caret { display: inline-block; font-size: 11px; color: var(--muted-foreground); transition: transform .15s; }
+    .abb-adv-section[open] > summary .abb-caret { transform: rotate(90deg); }
+    .abb-adv-count { margin-left: auto; font-size: 12px; font-weight: 500; color: var(--muted-foreground); }
+    .abb-adv-body { border-top: 1px solid var(--border); padding: 12px 16px 14px; }
+    .abb-adv-body .abb-adv-all { background: var(--card); margin-bottom: 12px; }
+    .abb-adv-search ul.columns {
+      display: grid !important; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 2px 12px;
+      list-style: none; margin: 0 !important; padding: 0 !important; column-count: auto !important;
+    }
+    .abb-adv-search ul.columns li { float: none !important; width: auto !important; margin: 0 !important; padding: 0 !important; }
+    .abb-adv-search ul.columns label {
+      display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 6px; font-size: 13px; line-height: 1.3; cursor: pointer;
+    }
+    .abb-adv-search ul.columns label:hover { background: var(--card); }
+
     /* ---- forum (SMF 1.1, "Headline" theme) — recolour in place ---- */
     html.abb-forum-html, body.abb-forum {
       margin: 0 !important; padding: 0 !important;
@@ -699,6 +741,17 @@
     .abb-date.abb-date-custom .abb-date-range { display: grid; }
     .abb-date-range label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted-foreground); }
     .abb-date-range input[type="date"] { height: 32px; padding: 0 8px; font-size: 13px; min-width: 0; }
+
+    .abb-multi-actions { display: flex; gap: 8px; }
+    .abb-multi-actions .abb-btn { flex: 1 1 0; width: auto; justify-content: center; }
+    #abb-root .abb-multi-apply, #abb-root .abb-multi-apply:hover {
+      background: var(--brand) !important; color: var(--background) !important; border-color: transparent !important;
+    }
+    #abb-root .abb-multi-apply:hover:not(:disabled) { filter: brightness(1.12); }
+    #abb-root .abb-multi-apply:disabled, #abb-root .abb-multi-apply:disabled:hover {
+      opacity: .45; cursor: not-allowed; filter: none;
+    }
+    .abb-date-range input[type="date"]:invalid { border-color: #e5484d !important; }   /* hand-typed future date */
 
     /* two-column pages (profile, personal messages) — cells tagged by initForumMode */
     .abb-forum-body table.abb-two-col {
@@ -863,25 +916,53 @@
       onerror:   () => reject(new GrTransient('network error', { backoff: 5000 })),
       ontimeout: () => reject(new GrTransient('timeout',       { backoff: 5000 })) }));
 
+  // Series / volume number in a title: "Book 2", "Book Two", "Vol. 3", "Part 4", "(Catalina #1)". 0 if none.
+  const NUM_WORDS = Object.fromEntries('one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty'
+    .split(' ').map((w, i) => [w, i + 1]));
+  function seriesNum(s) {
+    const m = (s || '').match(/(?:\b(?:book|vol(?:ume)?|part|no\.?)\s*|#\s*)(\d{1,3}|[a-z]+)\b/i);
+    if (!m) return 0;
+    return /^\d+$/.test(m[1]) ? Number(m[1]) : (NUM_WORDS[m[1].toLowerCase()] || 0);
+  }
+
+  // Study guides, summaries and the like: Goodreads lists them as books, often above the novel itself
+  const GR_JUNK_TITLE  = /\b(study guide|summary|summaries|summar(?:y|ies) (?:&|and) analysis|workbook|conversation starters|key takeaways|sidekick|cliff'?s ?notes|sparknotes)\b|^analysis of\b/i;
+  const GR_JUNK_AUTHOR = /\b(supersummary|sparknotes|bookrags|instaread|blinkist|cliffsnotes|gradesaver|litcharts|bright summaries|worth books|summary|summaries|readtrepreneur|book ?habits|swift ?reads)\b/i;
+  const isStudyGuide = (title, author) => GR_JUNK_TITLE.test(title || '') || GR_JUNK_AUTHOR.test(author || '');
+
+  // What the ABB title tells us about the book, for ranking Goodreads' candidates
+  function grContext(raw) {
+    const parts = cleanTitle(raw).split(/\s+[-–—]\s+/);
+    return { author: parts.length > 1 ? parts[parts.length - 1] : '', num: seriesNum(parts[0]) };
+  }
+
   // Goodreads' own search-box endpoint: small JSON, no HTML parsing, copes with the full ABB title.
-  async function goodreadsLookup(q) {
+  async function goodreadsLookup(q, ctx = {}) {
     const r = await gmFetch('https://www.goodreads.com/book/auto_complete?format=json&q=' + encodeURIComponent(q));
     if (r.status === 429 || r.status === 403) throw new GrTransient('blocked ' + r.status, { blocked: true });
     if (r.status !== 200)                     throw new GrTransient('http ' + r.status, { backoff: 10000 });
     let list;
     try { list = JSON.parse(r.responseText); } catch { throw new GrTransient('not JSON (bot check?)', { blocked: true }); }
     if (!Array.isArray(list)) throw new GrTransient('unexpected JSON', { backoff: 10000 });
-    if (!list.length) return null;
-    // Rank 1 is usually right, but self-published duplicates sometimes outrank the real edition.
-    // If rank 1 has almost no ratings, prefer a better-rated result with the same opening words.
+    // Study guides / summaries are never the book. Dropping them all makes this query a miss,
+    // so the next, simpler query gets its turn.
+    const cands = list.filter(b => !isStudyGuide(b.bookTitleBare || b.title, b.author?.name));
+    if (!cands.length) return null;
+    // Score rather than trust rank 1: Goodreads' order still counts, but the uploader's author
+    // and series number ("Book 2") outrank it, and popular editions beat self-published duplicates.
     const norm = s => (s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
     const ratings = b => Number(b.ratingsCount) || 0;
-    let best = list[0];
-    if (ratings(best) < 10) {
-      const stem = norm(best.bookTitleBare).split(' ').slice(0, 3).join(' ');
-      for (const b of list.slice(1, 5))
-        if (norm(b.bookTitleBare).startsWith(stem) && ratings(b) > ratings(best)) best = b;
-    }
+    const abbAuthor = norm(ctx.author), stem = norm(cands[0].bookTitleBare).split(' ').slice(0, 3).join(' ');
+    const score = (b, i) => {
+      let s = 3 - i * 0.5 + Math.min(3, Math.log10(ratings(b) + 1)) * 0.4;
+      if (ratings(cands[0]) < 10 && i > 0 && norm(b.bookTitleBare).startsWith(stem) && ratings(b) > ratings(cands[0])) s += 2;
+      const sur = norm(b.author?.name).split(' ').pop();
+      if (abbAuthor && sur.length > 2) s += abbAuthor.includes(sur) ? 3 : -3;
+      if (ctx.num) { const n = seriesNum(b.title) || seriesNum(b.bookTitleBare); if (n) s += n === ctx.num ? 3 : -5; }
+      return s;
+    };
+    let best = cands[0], bestScore = -Infinity;
+    cands.forEach((b, i) => { const s = score(b, i); if (s > bestScore) { best = b; bestScore = s; } });
     return {
       url: 'https://www.goodreads.com/book/show/' + best.bookId,
       title: (best.bookTitleBare || '').replace(/\s+/g, ' ').trim(),
@@ -902,8 +983,10 @@
     return letters.length ? letters.filter(ch => /\p{Script=Latin}/u.test(ch)).length / letters.length : 1;
   };
   function grPlausible(abbTitle, info) {
-    if (!info.title) return false;
+    if (!info.title || isStudyGuide(info.title, info.author)) return false;
     if (latinShare(abbTitle) >= 0.7 && latinShare(info.title) < 0.7) return false;   // different script
+    const n1 = seriesNum(abbTitle), n2 = seriesNum(info.title);
+    if (n1 && n2 && n1 !== n2) return false;                                           // "Book 2" must never become "Book One"
     const a = normT(abbTitle);
     const words = normT(info.title).split(' ').filter(w => w.length > 2);
     const hits = words.filter(w => a.includes(w)).length;
@@ -911,6 +994,16 @@
     return (words.length > 0 && hits / words.length >= 0.6) ||
            (surname.length > 2 && a.includes(surname) && hits >= 1);
   }
+
+  // Evict cached hits the older ranking got wrong — study guides, and editions whose series number
+  // contradicts the ABB title — so they are looked up again next time they scroll into view.
+  let grSwept = 0;
+  for (const [k, e] of Object.entries(grCache)) {
+    if (!e.url) continue;
+    const n1 = seriesNum(k), n2 = seriesNum(e.title);
+    if (isStudyGuide(e.title, e.author) || (n1 && n2 && n1 !== n2)) { delete grCache[k]; grSwept++; }
+  }
+  if (grSwept) saveGrCache();
 
   /* --- queue: one request at a time; a block pauses everything with growing backoff --- */
   const grQueue = [];
@@ -941,8 +1034,9 @@
     job.onState?.('Goodreads: searching…');
     try {
       let info = null;
+      const ctx = grContext(job.title);
       for (const q of goodreadsQueries(job.title)) {
-        info = await goodreadsLookup(q);
+        info = await goodreadsLookup(q, ctx);
         console.debug('[ABB] goodreads', JSON.stringify(q), '→', info?.url || 'no match');
         if (info) break;
         await sleep(GR_GAP);
@@ -1037,7 +1131,28 @@
   };
 
   // "12 Sep 2026" (the Posted: value) → local-midnight timestamp; 0 if absent or unparseable
-  const MONTH_IDX = Object.fromEntries('jan feb mar apr may jun jul aug sep oct nov dec'.split(' ').map((m, i) => [m, i]));
+  const MONTH_ABBR = 'jan feb mar apr may jun jul aug sep oct nov dec'.split(' ');
+  const MONTH_IDX  = Object.fromEntries(MONTH_ABBR.map((m, i) => [m, i]));
+
+  // Torrent-info tables carry "Creation Date: Wed, 24 Jun 2026 01:08:57 +0200" and the site's search can be
+  // confined to that table (tt=3), so searching the phrase "jun 2026" returns one month's uploads directly.
+  const monthPhrase = (y, m) => `${MONTH_ABBR[m]} ${y}`;                                    // "sep 2026"
+  const MONTH_PHRASE_RE = /"(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\s+(\d{4})"/i;
+  // The month phrase in a search string, if any → { y, m, rest } (rest = the user's own keywords)
+  function parseDateSearch(s) {
+    const m = (s || '').match(MONTH_PHRASE_RE);
+    return m ? { y: +m[2], m: MONTH_IDX[m[1].toLowerCase()], rest: s.replace(m[0], '').replace(/\s+/g, ' ').trim() } : null;
+  }
+  // Months overlapping [lo, hi] (timestamps; hi = 0 → now, lo = 0 → 2008, before the site existed), newest first
+  function monthsBetween(lo, hi) {
+    const out = [], end = new Date(hi || Date.now()), start = new Date(lo || new Date(2008, 0, 1));
+    for (let y = end.getFullYear(), m = end.getMonth();
+         y > start.getFullYear() || (y === start.getFullYear() && m >= start.getMonth()); ) {
+      out.push({ y, m });
+      if (--m < 0) { m = 11; y--; }
+    }
+    return out;
+  }
   function parsePosted(s) {
     const m = (s || '').match(/(\d{1,2})\s+([A-Za-z]{3})[A-Za-z]*\.?\s+(\d{4})/);
     if (!m) return 0;
@@ -1210,6 +1325,10 @@
 
   async function fetchDoc(url) {
     const res = await fetch(url, { credentials: 'omit' });
+    if (res.status === 429 || res.status === 503) {           // throttled — not the end of results
+      const secs = Number(res.headers.get('Retry-After')) || 30;
+      throw Object.assign(new Error(`HTTP ${res.status}`), { retryAfter: Math.min(secs, 300) * 1000 });
+    }
     const html = await res.text();
     return { res, html, doc: new DOMParser().parseFromString(html, 'text/html') };
   }
@@ -1248,6 +1367,10 @@
           <div class="abb-pop abb-theme-pop"></div>
         </div>
       </nav>`;
+    // Home means a clean slate: drop every hybrid filter so the listing never resumes a crawl.
+    // auxclick covers middle-click (new tabs inherit sessionStorage in Chromium).
+    const logo = header.querySelector('.abb-logo');
+    ['click', 'auxclick'].forEach(ev => logo.addEventListener(ev, clearHybridFilters));
     wireSearch(header);
     wireThemePicker(header);
     return header;
@@ -1337,16 +1460,18 @@
             <label><input type="radio" name="abb-date" value="any" checked> Any time</label>
             <label><input type="radio" name="abb-date" value="today"> Today</label>
             <label><input type="radio" name="abb-date" value="7d"> Last 7 days</label>
-            <label><input type="radio" name="abb-date" value="30d"> Last 30 days</label>
-            <label><input type="radio" name="abb-date" value="90d"> Last 90 days</label>
-            <label><input type="radio" name="abb-date" value="year"> This year</label>
+            <label><input type="radio" name="abb-date" value="month"> This month</label>
+            <label><input type="radio" name="abb-date" value="lastmonth"> Last month</label>
             <label><input type="radio" name="abb-date" value="custom"> Custom range</label>
           </div>
           <div class="abb-date-range">
             <label>From <input type="date" id="abb-date-from" class="abb-input"></label>
             <label>To <input type="date" id="abb-date-to" class="abb-input"></label>
           </div>
-          <button type="button" class="abb-btn abb-multi-clear" id="abb-date-clear">Clear</button>
+          <div class="abb-multi-actions">
+            <button type="button" class="abb-btn abb-multi-clear" id="abb-date-clear">Clear</button>
+            <button type="button" class="abb-btn abb-multi-apply" id="abb-date-apply" disabled>Search</button>
+          </div>
         </div>
       </details>
       <select class="abb-input" id="abb-sort"></select>
@@ -1380,6 +1505,20 @@
       return Boolean(preset && preset !== 'any' && (preset !== 'custom' || from || to));
     };
     const hybridActive = () => Boolean(hyb.lang || hyb.cats.length || dateActive());
+
+    // Old date ranges come from the site's search rather than from paging back (see the Posted
+    // block). Such a filter only makes sense on its month-search page: arriving anywhere else with
+    // one in session, drop it rather than start a thousand-page crawl. Conversely a hand-typed
+    // /?s="may 2012"&tt=3 adopts that month as the filter.
+    const curSearch  = new URLSearchParams(location.search).get('s') || '';
+    const dateSearch = isSearch ? parseDateSearch(curSearch) : null;            // { y, m, rest } on a month-search page
+    const dateViaSearch = () => dateActive() && !['today', '7d'].includes(hyb.date.preset);
+    if (dateViaSearch() && !dateSearch) { hyb.date = {}; session.set('date', ''); }
+    if (dateSearch && !dateActive()) {
+      const iso = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      hyb.date = { preset: 'custom', from: iso(new Date(dateSearch.y, dateSearch.m, 1)), to: iso(new Date(dateSearch.y, dateSearch.m + 1, 0)) };
+      session.set('date', JSON.stringify(hyb.date));
+    }
 
     /* --- Dropdowns --- */
     function fillSelect(sel, anyLabel, options, selected) {
@@ -1447,48 +1586,106 @@
     dismissOnOutside(catBox, () => { catBox.open = false; });
     updateCatSummary();
 
-    /* --- Posted date: presets or a custom range, client-side; rides in session like categories --- */
+    /* --- Posted date. Today / 7 days are trimmed client-side from the listing. Anything older is
+           served by the site's search on the torrent creation date ("sep 2026", tt=3), one month per
+           search, newest first — see parseDateSearch. State rides in session like categories. --- */
     const dateBox = $('#abb-date'), dateSummary = dateBox.querySelector('summary'),
           dateRadios = [...dateBox.querySelectorAll('input[type="radio"]')],
           dateFrom = $('#abb-date-from'), dateTo = $('#abb-date-to');
-    const DAY = 86_400_000, DATE_PRESETS = { today: 0, '7d': 7, '30d': 30, '90d': 90 };
+    const DAY = 86_400_000, DATE_PRESETS = { today: 0, '7d': 7 };
     const startOfDay = ms => { const x = new Date(ms); x.setHours(0, 0, 0, 0); return x.getTime(); };
     const fromISO = s => (s ? startOfDay(new Date(s + 'T00:00:00')) : 0);   // local midnight, not UTC
-    // Recomputed on every filter pass so "last 7 days" stays correct in a long-open tab
+    // Recomputed on every filter pass so "last 7 days" / "this month" stay right in a long-open tab
     function dateBounds() {
       const { preset, from, to } = hyb.date;
       if (!dateActive()) return [0, 0];
       if (preset === 'custom') return [fromISO(from), to ? fromISO(to) + DAY - 1 : 0];   // "to" is inclusive
-      if (preset === 'year')   return [new Date(new Date().getFullYear(), 0, 1).getTime(), 0];
+      if (preset === 'month' || preset === 'lastmonth') {
+        const now = new Date(), m = now.getMonth() - (preset === 'lastmonth' ? 1 : 0);
+        // the search matches the torrent's creation date; the post itself may go up a day or two later
+        return [new Date(now.getFullYear(), m, 1).getTime(), new Date(now.getFullYear(), m + 1, 3).getTime() - 1];
+      }
       return [startOfDay(Date.now() - (DATE_PRESETS[preset] ?? 0) * DAY), 0];
     }
+    // Months to ask the site's search for. Deliberately NOT derived from dateBounds(): the presets'
+    // two-day slack is for trimming cards, and would otherwise make us search the *following* month.
+    function dateMonths() {
+      const { preset, from, to } = hyb.date;
+      if (preset === 'month' || preset === 'lastmonth') {
+        const now = new Date(), d = new Date(now.getFullYear(), now.getMonth() - (preset === 'lastmonth' ? 1 : 0), 1);
+        return [{ y: d.getFullYear(), m: d.getMonth() }];
+      }
+      return monthsBetween(fromISO(from), to ? fromISO(to) : 0);      // custom: one search per month in range
+    }
+    // /?s="sep 2026"&tt=3 — tt=3 confines the search to the torrent-info table, where the creation date
+    // lives. With the user's own keywords the restriction is dropped so title/description match too.
+    const dateSearchUrl = ({ y, m }, kw) => {
+      const u = new URL('/', location.origin);
+      u.searchParams.set('s', `"${monthPhrase(y, m)}"${kw ? ' ' + kw : ''}`);
+      if (!kw) u.searchParams.set('tt', '3');
+      return u.href;
+    };
+    const dateKw = dateSearch ? dateSearch.rest : (isSearch ? curSearch : '');   // keywords to carry along
+    // Months still to fetch after the one this page shows, newest first (empty unless on a month search)
+    let dateQueue = dateSearch && dateViaSearch()
+      ? dateMonths().filter(({ y, m }) => y * 12 + m < dateSearch.y * 12 + dateSearch.m)
+      : [];
+
     const fmtDay = ms => new Date(ms).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
     function updateDateSummary() {
       const { preset, from, to } = hyb.date;
       dateSummary.textContent =
-        !dateActive()        ? 'Posted · any'
+        !dateActive()         ? 'Posted · any'
         : preset !== 'custom' ? 'Posted · ' + dateRadios.find(r => r.value === preset).parentElement.textContent.trim().toLowerCase()
         : from && to          ? `Posted · ${fmtDay(fromISO(from))} – ${fmtDay(fromISO(to))}`
         : from                ? `Posted · since ${fmtDay(fromISO(from))}`
         :                       `Posted · until ${fmtDay(fromISO(to))}`;
-      dateBox.classList.toggle('abb-date-custom', preset === 'custom');
     }
     const onDateChange = () => {
       hyb.date = { preset: dateRadios.find(r => r.checked)?.value || 'any', from: dateFrom.value, to: dateTo.value };
       session.set('date', JSON.stringify(hyb.date));
       updateDateSummary();
+      syncDateInputs();
+      if (dateViaSearch()) {
+        const months = dateMonths();
+        if (!dateSearch || dateSearch.y !== months[0].y || dateSearch.m !== months[0].m) { goTo(dateSearchUrl(months[0], dateKw)); return; }
+        dateQueue = months.slice(1);                            // same newest month as this page: stay, refresh the queue
+        if (!nextPage && dateQueue.length) { nextPage = dateSearchUrl(dateQueue.shift(), dateKw); emptyPages = 0; }
+      } else if (dateSearch) {                                  // leaving a month search: back to the plain listing / search
+        goTo(dateKw ? `/?s=${encodeURIComponent(dateKw)}` : '/'); return;
+      }
       refilter();
+    };
+    const dateApply = $('#abb-date-apply');
+    const todayISO = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+    // Custom range is staged: picking dates only shows the inputs and arms "Search"; nothing runs until it's clicked.
+    // Future dates are greyed out (max = today) and the two pickers bound each other.
+    const syncDateInputs = () => {
+      const today = todayISO();
+      dateFrom.max = dateTo.value && dateTo.value < today ? dateTo.value : today;
+      dateTo.max = today; dateTo.min = dateFrom.value || '';
+      dateBox.classList.toggle('abb-date-custom', dateRadios.find(r => r.checked)?.value === 'custom');
+      dateApply.disabled = !(dateFrom.value || dateTo.value);
     };
     (dateRadios.find(r => r.value === hyb.date.preset) || dateRadios[0]).checked = true;
     dateFrom.value = hyb.date.from || ''; dateTo.value = hyb.date.to || '';
-    dateRadios.forEach(r => r.addEventListener('change', onDateChange));
-    [dateFrom, dateTo].forEach(i => i.addEventListener('change', () => {
-      dateRadios.find(r => r.value === 'custom').checked = true;    // typing a date implies "custom"
+    dateRadios.forEach(r => r.addEventListener('change', () => {
+      if (r.value === 'custom') { syncDateInputs(); dateFrom.focus(); return; }     // presets apply at once; custom waits for Search
       onDateChange();
     }));
+    [dateFrom, dateTo].forEach(i => {
+      i.addEventListener('input', () => { dateRadios.find(r => r.value === 'custom').checked = true; syncDateInputs(); });
+      i.addEventListener('keydown', e => { if (e.key === 'Enter' && !dateApply.disabled) { e.preventDefault(); dateApply.click(); } });
+    });
+    dateApply.addEventListener('click', () => {
+      if (!dateFrom.checkValidity() || !dateTo.checkValidity()) { (dateFrom.checkValidity() ? dateTo : dateFrom).focus(); return; }   // typed a future date
+      if (dateFrom.value && dateTo.value && dateFrom.value > dateTo.value) [dateFrom.value, dateTo.value] = [dateTo.value, dateFrom.value];
+      onDateChange();
+    });
     $('#abb-date-clear').addEventListener('click', () => { dateRadios[0].checked = true; dateFrom.value = dateTo.value = ''; onDateChange(); });
     dismissOnOutside(dateBox, () => { dateBox.open = false; });
     updateDateSummary();
+    syncDateInputs();
 
     /* --- Language: small archives, so read the archive; categories ride along in session --- */
     langSel.addEventListener('change', () => {
@@ -1707,8 +1904,8 @@
     }
 
     let nextPage = nextLinkIn(document, location.href);
-    let loading = false, emptyPages = 0, lastError = false, sentinelVisible = false;
-    let checked = 0, lastPage = pageNoOf(location.href), burst = 0, burstPaused = false;
+    let loading = false, emptyPages = 0, lastError = false, curLabel = '', sentinelVisible = false;
+    let checked = 0, lastPage = pageNoOf(location.href), burst = 0, burstPaused = false, retryAt = 0;
     let prefetch = null;                                   // { url, promise } — the next page, fetched early
     function prefetchNext() {
       if (!nextPage || loading || lastError || !infChk.checked || prefetch?.url === nextPage) return;
@@ -1724,6 +1921,8 @@
       lastPage = pageNoOf(nextPage);
       checked++;
       let added = 0;
+      const ds = parseDateSearch(new URL(nextPage).searchParams.get('s'));
+      curLabel = ds ? `${MONTH_ABBR[ds.m][0].toUpperCase() + MONTH_ABBR[ds.m].slice(1)} ${ds.y}, ` : '';
       try {
         const pending = prefetch?.url === nextPage ? prefetch.promise : fetchDoc(nextPage);
         prefetch = null;
@@ -1738,9 +1937,16 @@
           emptyPages = added ? 0 : emptyPages + 1;
           nextPage = emptyPages >= MAX_EMPTY_PAGES ? null : nextLinkIn(doc, nextPage);
         }
+        if (!nextPage && dateQueue.length) {                    // this month is exhausted — on to the next older one
+          nextPage = dateSearchUrl(dateQueue.shift(), dateKw);
+          emptyPages = 0;
+        }
       } catch (err) {
         console.warn('[ABB] load more:', err);
-        lastError = true;
+        if (err.retryAfter) {                                  // 429/503: wait it out, then carry on by itself
+          retryAt = Date.now() + err.retryAfter;
+          setTimeout(() => { retryAt = 0; pump(); }, err.retryAfter);
+        } else lastError = true;
       }
       loading = false;
       return added;
@@ -1760,6 +1966,7 @@
     // Is another page needed right now?
     function needMore() {
       if (!infChk.checked || !nextPage || lastError || burstPaused) return false;
+      if (document.hidden || retryAt > Date.now()) return false;   // background tab / site asked us to slow down
       if (pastDateRange()) return false;
       if (wantsGoodreads() && pendingGoodreads() >= 18) return false;
       if (sentinelVisible) return true;                        // reader is at the bottom
@@ -1775,8 +1982,10 @@
         burst++;
         await loadMore();
         if (hybridActive() && burst >= MAX_BURST_PAGES) { burstPaused = true; break; }
+        // Filling for a hidden filter is our idea, not the reader's — pace it so we never hammer the site
+        if (!sentinelVisible && needMore()) await sleep(PAGE_GAP);
       }
-      prefetchNext();
+      if (sentinelVisible) prefetchNext();        // don't warm page N+1 for a reader who may never scroll
       updateStatus();
     }
 
@@ -1784,25 +1993,28 @@
       sentinelVisible = entries.some(e => e.isIntersecting);
       if (sentinelVisible) pump();
     }, { rootMargin: '900px 0px' }).observe(sentinel);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) pump(); });
 
     // Status line doubles as the retry / keep-searching control. nextPage is left alone,
     // so "keep searching" continues from where it paused.
     statusEl.addEventListener('click', () => {
+      if (loading && hybridActive()) { burstPaused = true; return; }   // brake: stop after the page in flight
       if (!lastError && !burstPaused) return;
-      lastError = false; burstPaused = false; burst = 0;
+      lastError = false; burstPaused = false; burst = 0; retryAt = 0;
       pump();
     });
 
     function updateStatus() {
       const found = visibleCount();
-      statusEl.classList.toggle('is-action', lastError || burstPaused);
+      statusEl.classList.toggle('is-action', lastError || burstPaused || (loading && hybridActive()));
       statusEl.textContent =
-        !infChk.checked ? 'Infinite scroll is off'
+        !infChk.checked  ? 'Infinite scroll is off'
+        : retryAt > Date.now() ? `Site is busy — pausing ${Math.ceil((retryAt - Date.now()) / 1000)}s before retrying`
         : lastError      ? 'Load failed — click to retry'
         : burstPaused    ? `Checked ${checked} pages (up to page ${lastPage}), ${found} matching — click to check ${MAX_BURST_PAGES} more`
-        : loading        ? (hybridActive() ? `Searching… page ${lastPage}, ${found} matching so far` : 'Loading…')
+        : loading        ? (hybridActive() ? `Searching… ${curLabel}page ${lastPage}, ${found} matching so far — click to pause` : 'Loading…')
         : pastDateRange() ? '— No older posts in this date range —'
-        : !nextPage      ? '— End of results —'
+        : !nextPage      ? (dateSearch ? '— End of results for this date range —' : '— End of results —')
         : 'Scroll for more';
     }
 
@@ -1857,6 +2069,80 @@
     card.querySelectorAll('.navbar h3').forEach(h => h.replaceWith(el('p', 'abb-note', h.textContent.trim())));
   }
 
+  // Advanced search page: the site renders three bare boxes with javascript: toggle links, two
+  // 59-item checkbox lists hidden by its own script, and a magnifier gif that submits the form.
+  // Rebuild it as a search row, a "Search in" chip row and two collapsible category sections,
+  // all self-contained so nothing depends on the site's JS. Field names are untouched, so the
+  // query the site receives is exactly what its own form would send.
+  function tidyAdvancedSearch(card) {
+    const form = card.querySelector('#asearchform');
+    if (!form) return;
+    card.classList.add('abb-adv-search');
+
+    // Title (small-caps serif h4) and grey inline-styled intro
+    const title = card.querySelector('h4.archiveTitle');
+    if (title) title.replaceWith(el('h1', '', strip(title.textContent)));
+    card.querySelectorAll('p > span[style*="color"]').forEach(s => { s.removeAttribute('style'); s.parentElement.className = 'abb-note abb-adv-intro'; });
+
+    // Search row: real submit button instead of the gif link
+    const input = form.querySelector('input[name="s"]');
+    if (input) {
+      ['style', 'onsubmit'].forEach(a => input.removeAttribute(a));
+      input.type = 'search'; input.autocomplete = 'off'; input.placeholder = 'Title, author, narrator, keywords…';
+      const row = el('div', 'abb-adv-row'), go = el('button', 'abb-adv-go', 'Search');
+      go.type = 'submit';
+      input.parentElement.replaceWith(row);           // the <p> holding the input and the magnifier
+      row.append(input, go);
+      form.addEventListener('submit', e => { if (!input.value.trim()) { e.preventDefault(); input.focus(); } });
+      input.focus();
+    }
+
+    // "Search in": the tt[] boxes plus Exact match as one chip row
+    const sin = card.querySelector('#search_in_div');
+    if (sin) {
+      const row = el('div', 'abb-adv-options');
+      row.appendChild(el('span', 'abb-adv-label', 'Search in'));
+      const chip = cb => {
+        const lab = sin.querySelector(`label[for="${cb.id}"]`);
+        const c = el('label', 'abb-chip-check');
+        c.append(cb, ' ' + strip(lab?.textContent || cb.value));
+        lab?.remove();
+        return c;
+      };
+      sin.querySelectorAll('#search_in_inner input[type="checkbox"]').forEach(cb => row.appendChild(chip(cb)));
+      const exact = sin.querySelector('#exact_match');
+      if (exact) { row.appendChild(el('span', 'abb-adv-sep')); row.appendChild(chip(exact)); }
+      sin.replaceWith(row);
+    }
+
+    // Include / Exclude: <details> with an "All categories" master box and a live count
+    const catSection = (id, label) => {
+      const box = card.querySelector(`#${id}_div`), list = box?.querySelector('ul.columns'), all = box?.querySelector(`#${id}_checkall`);
+      if (!list || !all) return;
+      const boxes = [...list.querySelectorAll('input[type="checkbox"]')];
+      const det = el('details', 'abb-adv-section'), sum = el('summary'), count = el('span', 'abb-adv-count');
+      sum.append(el('span', 'abb-caret', '▶'), ` ${label}`, count);
+      const master = all.cloneNode(true);             // a clone carries none of the site's handlers
+      const masterLab = el('label', 'abb-chip-check abb-adv-all');
+      masterLab.append(master, ' All categories');
+      const body = el('div', 'abb-adv-body');
+      body.append(masterLab, list);
+      det.append(sum, body);
+      box.replaceWith(det);
+      const sync = () => {
+        const n = boxes.filter(b => b.checked).length;
+        master.checked = n === boxes.length;
+        master.indeterminate = n > 0 && n < boxes.length;
+        count.textContent = n === boxes.length ? 'all' : n ? `${n} of ${boxes.length}` : 'none';
+      };
+      master.addEventListener('change', () => { boxes.forEach(b => { b.checked = master.checked; }); sync(); });
+      list.addEventListener('change', sync);
+      sync();
+    };
+    catSection('include', 'Include categories');
+    catSection('exclude', 'Exclude categories');
+  }
+
   // Book page: the torrent table opens with the announce URL and a dozen "Tracker:" rows.
   // Fold those into a collapsed <details>; the remaining rows (info hash, size, files…)
   // stay visible as their own table. Rows are moved, not copied, so collectLinks() still
@@ -1906,6 +2192,7 @@
         img.replaceWith(btn);
       });
       if (/^\/member\/donate/.test(location.pathname)) tidyDonatePage(card);
+      if (/^\/member\/advanced_search/.test(location.pathname)) tidyAdvancedSearch(card);
       return;
     }
 
