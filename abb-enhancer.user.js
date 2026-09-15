@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AudiobookBay Enhancer
 // @namespace    https://github.com/Mhs11294/audiobookbay-enhancer
-// @version      0.2.5
+// @version      0.2.6
 // @description  Card list view, infinite scroll, category/language/format/bitrate filters, Goodreads ratings & links, Colophon-inspired themes for ABB
 // @license      MIT
 // @homepageURL  https://github.com/Mhs11294/audiobookbay-enhancer
@@ -1446,7 +1446,11 @@
       if (open && input.value.trim()) form.requestSubmit();
       else setOpen(!open);
     });
-    form.addEventListener('submit', e => { if (!input.value.trim()) e.preventDefault(); });
+    form.addEventListener('submit', e => {
+      const q = input.value.trim();
+      if (!q) { e.preventDefault(); return; }
+      input.value = q.toLowerCase();            // ABB serves the homepage for a capitalised first letter
+    });
     dismissOnOutside(form, () => setOpen(false));
   }
 
@@ -1720,7 +1724,7 @@
     // lives. With the user's own keywords the restriction is dropped so title/description match too.
     const dateSearchUrl = ({ y, m }, kw) => {
       const u = new URL('/', location.origin);
-      u.searchParams.set('s', `"${monthPhrase(y, m)}"${kw ? ' ' + kw : ''}`);
+      u.searchParams.set('s', `"${monthPhrase(y, m)}"${kw ? ' ' + kw.toLowerCase() : ''}`);
       if (!kw) u.searchParams.set('tt', '3');
       return u.href;
     };
@@ -1752,7 +1756,7 @@
         dateQueue = months.slice(1);                            // same newest month as this page: stay, refresh the queue
         if (!nextPage && dateQueue.length) { nextPage = dateSearchUrl(dateQueue.shift(), dateKw); emptyPages = 0; }
       } else if (dateSearch) {                                  // leaving a month search: back to the plain listing / search
-        goTo(dateKw ? `/?s=${encodeURIComponent(dateKw)}` : '/'); return;
+        goTo(dateKw ? `/?s=${encodeURIComponent(dateKw.toLowerCase())}` : '/'); return;
       }
       refilter();
     };
@@ -1798,7 +1802,7 @@
 
     qInput.addEventListener('input', applyFilters);
     qInput.addEventListener('keydown', e => {
-      if (e.key === 'Enter' && qInput.value.trim()) goTo('/?s=' + encodeURIComponent(qInput.value.trim()));
+      if (e.key === 'Enter' && qInput.value.trim()) goTo('/?s=' + encodeURIComponent(qInput.value.trim().toLowerCase()));
     });
 
     infChk.checked = settings.infinite;
