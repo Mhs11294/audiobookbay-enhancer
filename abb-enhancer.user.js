@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AudiobookBay Enhancer
 // @namespace    https://github.com/Mhs11294/audiobookbay-enhancer
-// @version      0.2.4
+// @version      0.2.5
 // @description  Card list view, infinite scroll, category/language/format/bitrate filters, Goodreads ratings & links, Colophon-inspired themes for ABB
 // @license      MIT
 // @homepageURL  https://github.com/Mhs11294/audiobookbay-enhancer
@@ -161,7 +161,8 @@
   /* =====================================================================
      3. Utilities
      ===================================================================== */
-  const strip = s => (s || '').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
+  const INVISIBLES = /[\u00ad\u061c\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff]/g;
+  const strip = s => (s || '').replace(/<[^>]+>/g, '').replace(INVISIBLES, '').replace(/\s+/g, ' ').trim();
   const esc = s => (s || '').replace(/[&<>"']/g,
     c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const abs = (href, base) => { try { return new URL(href, base).href; } catch { return href; } };
@@ -318,7 +319,7 @@
     .abb-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
     .abb-chip {
       background: var(--secondary); color: var(--foreground); border: 1px solid var(--border);
-      padding: 3px 10px; border-radius: 999px; font-size: 12px;
+      padding: 4px 11px; border-radius: 999px; font-size: 12px; line-height: 1.55;
     }
     .abb-links { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
     .abb-dl {
@@ -516,7 +517,7 @@
     body.abb-book .abb-torrent td:first-child:not([colspan]) { color: var(--muted-foreground); white-space: nowrap; }
     body.abb-book .abb-torrent span { color: inherit !important; font: inherit !important; }
     body.abb-book .abb-torrent a, body.abb-book .commentZone a { color: var(--brand); }
-    
+
 	/* collapsible tracker list (built by collapseTrackers) */
     body.abb-book .abb-trackers {
       background: var(--secondary); border: 1px solid var(--border); border-radius: 10px; margin-bottom: 14px;
@@ -669,7 +670,7 @@
       background-color: transparent !important; background-image: none !important; box-shadow: none !important;
     }
     .abb-forum-body > table:first-of-type td { padding: 0 !important; }             /* the title strip */
-    
+
 	/* current location directory trail */
     .abb-forum-body h1.nav, .abb-forum-body div.nav, .abb-forum-body td.nav,
     .abb-forum-body .nav b, .abb-forum-body .nav span {
@@ -752,7 +753,7 @@
     #abb-root .abb-multi-apply:disabled, #abb-root .abb-multi-apply:disabled:hover {
       opacity: .45; cursor: not-allowed; filter: none;
     }
-	
+
     /* category exclude toggle */
     .abb-multi-list label { position: relative; padding-right: 28px; }
     #abb-root .abb-cat-ex {
@@ -1229,7 +1230,7 @@
     (function walk(src, dst) {
       for (const child of src.childNodes) {
         if (child.nodeType === Node.TEXT_NODE) {
-          dst.appendChild(document.createTextNode(child.textContent));
+          dst.appendChild(document.createTextNode(child.textContent.replace(INVISIBLES, '')));
         } else if (child.nodeType === Node.ELEMENT_NODE && ALLOWED_TAGS.has(child.tagName)) {
           const copy = el(child.tagName.toLowerCase());
           if (child.tagName === 'A') {
@@ -1252,7 +1253,21 @@
   const LABEL_RE = new RegExp('^(' + [
     'series', 'release date', 'language', 'format', 'length', 'publisher', 'categories',
     'category', 'narrated by', 'by', 'author', 'runtime', 'duration', 'narrator',
-  ].join('|') + ')\\b\\s*:?\\s*(.*)$', 'i');
+  ].join('|') + ')\\b[\\s:·•\\-–—|]*(.*)$', 'i');
+
+  // Uploaders paste Amazon's details table, whose cells read "Listening Length ‏ : ‎ 12 hours and
+  // 32 minutes". strip() now kills the bidi marks; this clears whatever separator they leave behind
+  // so we never print "Length:  : 12 hours".
+  const cleanChipValue = v => strip(v).replace(/^[\s:;,·•|\-–—]+/, '').replace(/[\s:;,·•|\-–—.]+$/, '');
+  // "12 hours and 32 minutes" → "12h 32m"; anything unrecognised is left exactly as written
+  const prettyLength = v => {
+    const m = v.match(/^(?:(\d+)\s*(?:hours?|hrs?|h)\b)?(?:\s*(?:and|,|&)?\s*(\d+)\s*(?:minutes?|mins?|m)\b)?$/i);
+    return m && (m[1] || m[2]) ? [m[1] && m[1] + 'h', m[2] && m[2] + 'm'].filter(Boolean).join(' ') : v;
+  };
+  const pushChip = (chips, chip, value) => {
+    const v = cleanChipValue(value);
+    if (v) chips.push([chip, chip.startsWith('⏱') ? prettyLength(v) : v]);
+  };
   const splitSegs = p => p.innerHTML.split(/<br\s*\/?>/i);
 
   // Description element: chips (credits, series, length…) on top, cleaned prose below.
@@ -1263,8 +1278,8 @@
     const chips = [];
     const chipFor = label => ((full ? label in CHIP_LABEL : COMPACT_CHIPS.has(label)) ? CHIP_LABEL[label] : null);
 
-    const written   = [...source.querySelectorAll('a .author')].map(s => s.textContent.trim());
-    const narrators = [...source.querySelectorAll('a .narrator')].map(s => s.textContent.trim());
+    const written   = [...source.querySelectorAll('a .author')].map(s => strip(s.textContent));
+    const narrators = [...source.querySelectorAll('a .narrator')].map(s => strip(s.textContent));
     if (written.length)   chips.push(['✍ Written by', written.join(', ')]);
     if (narrators.length) chips.push(['🎙 Read by', narrators.join(', ')]);
     const abr = source.querySelector('.is_abridged')?.textContent.trim();
@@ -1290,17 +1305,17 @@
       }
       const m = L.text.match(LABEL_RE);
       if (!m) continue; // ordinary prose
-      const label = m[1].toLowerCase().trim(), value = m[2].trim(), chip = chipFor(label);
+      const label = m[1].toLowerCase().trim(), value = cleanChipValue(m[2]), chip = chipFor(label);
       if (value && value.length < 80) {
         drop.add(key);
-        if (chip) chips.push([chip, value]);
+        if (chip) pushChip(chips, chip, value);
       } else if (!value) {
         // bare label → value may be on the next line
         const nxt = lines[i + 1];
         if (nxt && nxt.text.length < 80 && !LABEL_RE.test(nxt.text)) {
           drop.add(key);
           drop.add(`${nxt.pi}:${nxt.si}`);
-          if (chip) chips.push([chip, nxt.text]);
+          if (chip) pushChip(chips, chip, nxt.text);
           i++;
         }
       }
@@ -2460,7 +2475,7 @@
       crumbs[0].remove();
       if (!heading.textContent.trim() && !heading.querySelector('img, input')) heading.remove();
     }
-	
+
     // Topic pages: SMF prints "« previous  next »" (older / newer topic in this board) as its own
     // right-aligned line under the breadcrumb. Fold the links into the breadcrumb row instead.
     const prev = body.querySelector('a[href*="prev_next=prev"]'), next = body.querySelector('a[href*="prev_next=next"]');
@@ -2493,7 +2508,7 @@
       while (w.parentElement !== body && isWelcome(w.parentElement)) w = w.parentElement;
       w.remove();
     }
-	
+
     // Two-column pages (profile, personal messages). SMF builds them as a bare <table> with a
     // fixed nav cell and a main cell whose tables are centred and shrink-wrapped, leaving voids
     // either side. Boxes are class "bordercolor" or "tborder" depending on template, so find the
