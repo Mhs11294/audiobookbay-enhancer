@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AudiobookBay Enhancer
 // @namespace    https://github.com/Mhs11294/audiobookbay-enhancer
-// @version      0.2.6
+// @version      0.2.7
 // @description  Card list view, infinite scroll, category/language/format/bitrate filters, Goodreads ratings & links, Colophon-inspired themes for ABB
 // @license      MIT
 // @homepageURL  https://github.com/Mhs11294/audiobookbay-enhancer
@@ -151,8 +151,8 @@
   const POST_LINK_SEL   = 'a[href*="audio-books"], .postTitle a, h2 a, h3 a';
   const FILL_TARGET     = 24;  // keep at least this many visible cards while hybrid filters are on
   const MAX_EMPTY_PAGES = 3;   // consecutive pages that add nothing before we call it the end
-  const MAX_BURST_PAGES = 30;  // pages a hidden filter may auto-fetch before pausing for confirmation
-  const PAGE_GAP        = 750; // ms between auto-fetched pages while filling for a hidden filter
+  const MAX_BURST_PAGES = 20;   // explicit confirmation after this many fetched listing pages
+  const PAGE_GAP        = 800; // pause after every script-generated ABB request completes
   const COLOPHON_KEY    = kind => `colophon:scheme-${kind}`;
   const ICON_SEARCH = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
     + 'stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">'
@@ -181,7 +181,26 @@
   });
   const local   = storage(() => localStorage);              // shared with Colophon
   const session = storage(() => sessionStorage, 'abb-hyb-'); // hybrid filters between pages
-  const presetStore = storage(() => localStorage, 'abb-presets-'); // saved filter sets, survive the session
+  // Keep the existing JSON-string interface used by loadPresets/savePresets.
+  const PRESET_KEY = 'abb-presets-list';
+
+  if (GM_getValue(PRESET_KEY, null) === null) {
+    const legacy = local.get(PRESET_KEY);
+    let initial = '';
+
+    try {
+      if (legacy && Array.isArray(JSON.parse(legacy))) initial = legacy;
+    } catch { /* ignore malformed legacy data */ }
+
+    // An empty string is also a migration marker: deleted presets must
+    // not be resurrected from the old localStorage copy on the next load.
+    GM_setValue(PRESET_KEY, initial);
+  }
+
+  const presetStore = {
+    get: k => GM_getValue('abb-presets-' + k, ''),
+    set: (k, value) => GM_setValue('abb-presets-' + k, value || '')
+  };
   const HYB_KEYS = ['lang', 'cat', 'catEx', 'catAll', 'date', 'local'];
   const clearHybridFilters = () => HYB_KEYS.forEach(k => session.set(k, ''));   // set('') removes the key
 
@@ -399,7 +418,11 @@
       color: var(--muted-foreground); user-select: none; white-space: nowrap;
     }
     .abb-switch input { cursor: pointer; accent-color: var(--brand); }
-    #abb-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(500px, 1fr)); gap: 12px; }
+    #abb-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(min(100%, 500px), 1fr));
+      gap: 12px;
+    }
     .abb-card {
       display: flex; flex-wrap: wrap; gap: 14px; padding: 14px; border-radius: 12px;
       background: var(--card); border: 1px solid var(--border); align-items: center;
@@ -912,21 +935,21 @@
   // Progressively simpler queries: full → "title author" → bare title.
   function goodreadsQueries(raw) {
     const full = cleanTitle(raw);
-    const [titlePart, ...rest] = full.split(/\s+[-–—]\s+/);      // "Title - Author"
+    const [titlePart, ...rest] = full.split(/\s+[-–—]\s+/); // "Title - Author"
     const author = rest.pop() || '';
-    const bare = titlePart.replace(/\s*[(:].*$/, '').trim();      // drop "(Series #12" / ": subtitle"
+    const bare = titlePart.replace(/\s*[(:].*$/, '').trim(); // drop "(Series #12" / ": subtitle"
     return [...new Set([full, `${bare} ${author}`.trim(), bare].filter(q => q.length > 2))];
   }
 
   /* --- cache: hits are permanent, misses expire, transient failures are never cached --- */
-  const GR_CACHE_KEY = 'abb-gr-cache-v4';   // v4 adds Goodreads' canonical title
+  const GR_CACHE_KEY = 'abb-gr-cache-v4'; // v4 adds Goodreads' canonical title
   const GR_MISS_TTL  = 24 * 3600 * 1000;
-  const GR_GAP       = 400;                        // ms between requests
-  const GR_BACKOFF   = [20, 45, 90, 180];          // seconds, per consecutive block
-  const grCache = GM_getValue(GR_CACHE_KEY, {});   // key → { url: string|null, t: ms }
+  const GR_GAP = 800; // minimum pause between resolver requests
+  const GR_BACKOFF   = [20, 45, 90, 180]; // seconds, per consecutive block
+  const grCache = GM_getValue(GR_CACHE_KEY, {}); // key → { url: string|null, t: ms }
 
   let grSaveTimer = 0;
-  function saveGrCache() {                     // debounced: many lookups → one write
+  function saveGrCache() { // debounced: many lookups → one write
     clearTimeout(grSaveTimer);
     grSaveTimer = setTimeout(flushGrCache, 2000);
   }
@@ -936,16 +959,24 @@
     if (keys.length > 3000) keys.slice(0, keys.length - 3000).forEach(k => delete grCache[k]);
     GM_setValue(GR_CACHE_KEY, grCache);
   }
-  addEventListener('pagehide', flushGrCache);  // don't lose the last batch on navigation
+  addEventListener('pagehide', () => {
+    if (grSaveTimer) flushGrCache();
+  });
 
-  const grCached = key => {                 // object = hit, null = recent miss, undefined = look it up
+  const grCached = key => { // object = hit, null = recent miss, undefined = look it up
     const e = grCache[key];
     if (!e) return undefined;
     if (e.url) return e;
     return Date.now() - e.t < GR_MISS_TTL ? null : undefined;
   };
   const fmtCount = n => n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1000 ? (n / 1000).toFixed(n < 10000 ? 1 : 0) + 'k' : String(n);
-  GM_registerMenuCommand('Clear Goodreads cache', () => { GM_setValue(GR_CACHE_KEY, {}); location.reload(); });
+  GM_registerMenuCommand('Clear Goodreads cache', () => {
+    clearTimeout(grSaveTimer);
+    grSaveTimer = 0;
+    Object.keys(grCache).forEach(k => delete grCache[k]);
+    GM_setValue(GR_CACHE_KEY, {});
+    location.reload();
+  });
 
   class GrTransient extends Error {
     constructor(msg, { blocked = false, backoff = 0 } = {}) { super(msg); this.blocked = blocked; this.backoff = backoff; }
@@ -986,7 +1017,13 @@
     if (!Array.isArray(list)) throw new GrTransient('unexpected JSON', { backoff: 10000 });
     // Study guides / summaries are never the book. Dropping them all makes this query a miss,
     // so the next, simpler query gets its turn.
-    const cands = list.filter(b => !isStudyGuide(b.bookTitleBare || b.title, b.author?.name));
+    const cands = list.filter(b => {
+      if (!b?.bookId) return false;
+      if (isStudyGuide(b.bookTitleBare || b.title, b.author?.name)) return false;
+
+      const number = seriesNum(b.title) || seriesNum(b.bookTitleBare);
+      return !(ctx.num && number && ctx.num !== number);
+    });
     if (!cands.length) return null;
     // Score rather than trust rank 1: Goodreads' order still counts, but the uploader's author
     // and series number ("Book 2") outrank it, and popular editions beat self-published duplicates.
@@ -1008,7 +1045,7 @@
       title: (best.bookTitleBare || '').replace(/\s+/g, ' ').trim(),
       rating: parseFloat(best.avgRating) || 0,
       count: Number(best.ratingsCount) || 0,
-      series: (best.title.match(/\(([^()]*#[^()]*)\)\s*$/) || [])[1] || '',   // "Windy Peaks #1"
+      series: ((best.title || '').match(/\(([^()]*#[^()]*)\)\s*$/) || [])[1] || '',
       author: (best.author?.name || '').replace(/\s+/g, ' ').trim(),
     };
   }
@@ -1025,7 +1062,8 @@
   function grPlausible(abbTitle, info) {
     if (!info.title || isStudyGuide(info.title, info.author)) return false;
     if (latinShare(abbTitle) >= 0.7 && latinShare(info.title) < 0.7) return false;   // different script
-    const n1 = seriesNum(abbTitle), n2 = seriesNum(info.title);
+    const n1 = seriesNum(abbTitle),
+          n2 = seriesNum(info.series) || seriesNum(info.title);
     if (n1 && n2 && n1 !== n2) return false;                                           // "Book 2" must never become "Book One"
     const a = normT(abbTitle);
     const words = normT(info.title).split(' ').filter(w => w.length > 2);
@@ -1040,7 +1078,7 @@
   let grSwept = 0;
   for (const [k, e] of Object.entries(grCache)) {
     if (!e.url) continue;
-    const n1 = seriesNum(k), n2 = seriesNum(e.title);
+    const n1 = seriesNum(k), n2 = seriesNum(e.series) || seriesNum(e.title);
     if (isStudyGuide(e.title, e.author) || (n1 && n2 && n1 !== n2)) { delete grCache[k]; grSwept++; }
   }
   if (grSwept) saveGrCache();
@@ -1048,6 +1086,10 @@
   /* --- queue: one request at a time; a block pauses everything with growing backoff --- */
   const grQueue = [];
   let grBusy = false, grPausedUntil = 0, grBlockStreak = 0, grTimer = 0;
+  let grHalted = false;
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) grPump();
+  });
   const sleep = ms => new Promise(r => setTimeout(r, ms));
   const grBroadcast = msg => grQueue.forEach(j => j.onState?.(msg));
 
@@ -1055,6 +1097,10 @@
     const key = title.toLowerCase();
     const hit = grCached(key);
     if (hit !== undefined) { if (hit) onDone(hit); else onState?.('Not on Goodreads — opens a Google search'); return; }
+    if (grHalted) {
+      onState?.('Goodreads lookup failed — automatic lookups paused until reload');
+      return;
+    }
     const job = { key, title, onDone, onState, tries: 0 };
     priority ? grQueue.unshift(job) : grQueue.push(job);
     onState?.('Goodreads: queued…');
@@ -1062,7 +1108,7 @@
   }
 
   async function grPump() {
-    if (grBusy || grTimer || !grQueue.length) return;
+    if (grHalted || document.hidden || grBusy || grTimer || !grQueue.length) return;
     const wait = grPausedUntil - Date.now();
     if (wait > 0) {
       grBroadcast(`Goodreads paused (rate limited) — retrying in ${Math.ceil(wait / 1000)} s`);
@@ -1088,9 +1134,18 @@
     } catch (err) {
       console.warn('[ABB] goodreads:', job.title, '—', err.message);
       if (err.blocked) {
-        // Site-wide throttle, not this book's fault: pause, keep the job at the front, don't burn a try.
-        grPausedUntil = Date.now() + GR_BACKOFF[Math.min(grBlockStreak++, GR_BACKOFF.length - 1)] * 1000;
-        grQueue.unshift(job);
+        // A block affects the whole queue. After repeated blocks, stop
+        // automatic lookups for this page rather than retry indefinitely.
+        if (++grBlockStreak >= 3) {
+          grHalted = true;
+          const message = 'Goodreads lookup failed — automatic lookups paused until reload';
+          job.onState?.(message);
+          grQueue.splice(0).forEach(j => j.onState?.(message));
+        } else {
+          grPausedUntil = Date.now() +
+            GR_BACKOFF[Math.min(grBlockStreak - 1, GR_BACKOFF.length - 1)] * 1000;
+          grQueue.unshift(job);
+        }
       } else {
         if (err.backoff) grPausedUntil = Date.now() + err.backoff;
         if (++job.tries < 3) grQueue.unshift(job);
@@ -1234,8 +1289,16 @@
         } else if (child.nodeType === Node.ELEMENT_NODE && ALLOWED_TAGS.has(child.tagName)) {
           const copy = el(child.tagName.toLowerCase());
           if (child.tagName === 'A') {
-            copy.href = abs(child.getAttribute('href') || '#', base);
-            if (newTab) copy.target = '_blank';
+            try {
+              const url = new URL(child.getAttribute('href') || '#', base);
+              if (['http:', 'https:', 'mailto:', 'magnet:'].includes(url.protocol)) {
+                copy.href = url.href;
+                if (newTab) {
+                  copy.target = '_blank';
+                  copy.rel = 'noopener noreferrer';
+                }
+              }
+            } catch { /* preserve link text without an unsafe URL */ }
           }
           walk(child, copy);
           dst.appendChild(copy);
@@ -1341,7 +1404,14 @@
   // .torrent / magnet links from a detail page; builds a magnet from the info-hash table if none exists.
   function collectLinks(scope, html, base) {
     const links = new Map(); // href → label
-    const add = (href, label) => { if (href && !links.has(href)) links.set(href, label); };
+    const add = (href, label) => {
+      if (!href) return;
+      try {
+        const url = new URL(href, base);
+        if (!['http:', 'https:', 'magnet:'].includes(url.protocol)) return;
+        if (!links.has(url.href)) links.set(url.href, label);
+      } catch { /* malformed link */ }
+    };
 
     scope.querySelectorAll('a[href]').forEach(a => {
       const h = a.getAttribute('href');
@@ -1377,14 +1447,97 @@
     return row;
   }
 
-  async function fetchDoc(url) {
-    const res = await fetch(url, { credentials: 'omit' });
-    if (res.status === 429 || res.status === 503) {           // throttled — not the end of results
-      const secs = Number(res.headers.get('Retry-After')) || 30;
-      throw Object.assign(new Error(`HTTP ${res.status}`), { retryAfter: Math.min(secs, 300) * 1000 });
+  // ABB requests only: pagination and expanded descriptions share one queue.
+  let abbFetchTail = Promise.resolve();
+  let abbNextFetchAt = 0;
+  let abbBusyUntil = 0;
+  let abbLeaving = false;
+  let abbController = null;
+
+  addEventListener('pagehide', () => {
+    abbLeaving = true;
+    abbController?.abort();
+  });
+
+  addEventListener('pageshow', () => {
+    abbLeaving = false;
+  });
+
+  function retryAfterMs(value) {
+    const raw = (value || '').trim();
+    let delay;
+
+    if (/^\d+$/.test(raw)) {
+      delay = Number(raw) * 1000;
+    } else {
+      const stamp = Date.parse(raw);
+      delay = Number.isFinite(stamp) ? stamp - Date.now() : 60000;
     }
-    const html = await res.text();
-    return { res, html, doc: new DOMParser().parseFromString(html, 'text/html') };
+
+    // Be conservative, but never shorten a longer server-requested wait.
+    return Number.isFinite(delay) ? Math.max(30000, delay) : 60000;
+  }
+
+  function fetchDoc(url) {
+    const task = abbFetchTail.then(async () => {
+      if (abbLeaving || document.hidden) {
+        throw Object.assign(new Error('Page is inactive'), {
+          name: 'AbbDeferred'
+        });
+      }
+
+      if (abbBusyUntil > Date.now()) {
+        throw Object.assign(new Error('ABB cooldown active'), {
+          retryAfter: abbBusyUntil - Date.now()
+        });
+      }
+
+      await sleep(Math.max(0, abbNextFetchAt - Date.now()));
+
+      // Visibility/navigation can change while the queue is waiting.
+      if (abbLeaving || document.hidden) {
+        throw Object.assign(new Error('Page is inactive'), {
+          name: 'AbbDeferred'
+        });
+      }
+
+      const controller = new AbortController();
+      abbController = controller;
+      const timeout = setTimeout(() => controller.abort(), 30000);
+
+      try {
+        const res = await fetch(url, {
+          credentials: 'omit',
+          signal: controller.signal
+        });
+
+        if (res.status === 429 || res.status === 503) {
+          const delay = retryAfterMs(res.headers.get('Retry-After'));
+          abbBusyUntil = Math.max(abbBusyUntil, Date.now() + delay);
+          throw Object.assign(new Error(`HTTP ${res.status}`), {
+            retryAfter: delay
+          });
+        }
+
+        // Preserve 404 for the existing end-of-pagination handling.
+        // Other failures must not silently become "end of results".
+        if (!res.ok && res.status !== 404) {
+          throw new Error(`HTTP ${res.status}`);
+        }
+
+        const html = await res.text();
+        const doc = new DOMParser().parseFromString(html, 'text/html');
+        return { res, html, doc };
+      } finally {
+        clearTimeout(timeout);
+        if (abbController === controller) abbController = null;
+        abbNextFetchAt = Date.now() + PAGE_GAP;
+      }
+    });
+
+    // A rejected request must not poison all later queued requests.
+    abbFetchTail = task.catch(() => {});
+    return task;
   }
 
   // Only the full book page has a date; fetch it on demand (once per book) when a card is expanded.
@@ -1653,7 +1806,16 @@
     });
     syncCatBoxes();
     catAllChk.checked = session.get('catAll') === '1';
-    const hasCat = (c, slug) => { const k = c.dataset.cats.split(' '); return k.includes(slug) || k.includes(CAT_NORM_BY_SLUG[slug]); };
+    const cardCategoryKeys = new WeakMap();
+
+    const hasCat = (card, slug) => {
+      let keys = cardCategoryKeys.get(card);
+      if (!keys) {
+        keys = new Set((card.dataset.cats || '').split(' ').filter(Boolean));
+        cardCategoryKeys.set(card, keys);
+      }
+      return keys.has(slug) || keys.has(CAT_NORM_BY_SLUG[slug]);
+    };
 
     function updateCatSummary() {
       const n = hyb.cats.length, x = hyb.exCats.length;
@@ -1800,7 +1962,11 @@
       if (path === location.pathname) { hyb.lang = ''; refilter(); } else goTo(path);
     });
 
-    qInput.addEventListener('input', applyFilters);
+    let textFilterTimer = 0;
+    qInput.addEventListener('input', () => {
+      clearTimeout(textFilterTimer);
+      textFilterTimer = setTimeout(applyFilters, 150);
+    });
     qInput.addEventListener('keydown', e => {
       if (e.key === 'Enter' && qInput.value.trim()) goTo('/?s=' + encodeURIComponent(qInput.value.trim().toLowerCase()));
     });
@@ -2083,13 +2249,6 @@
     let nextPage = nextLinkIn(document, location.href);
     let loading = false, emptyPages = 0, lastError = false, curLabel = '', sentinelVisible = false;
     let checked = 0, lastPage = pageNoOf(location.href), burst = 0, burstPaused = false, retryAt = 0;
-    let prefetch = null;                                   // { url, promise } — the next page, fetched early
-    function prefetchNext() {
-      if (!nextPage || loading || lastError || !infChk.checked || prefetch?.url === nextPage) return;
-      const promise = fetchDoc(nextPage);
-      promise.catch(() => {});                             // any failure surfaces when loadMore awaits it
-      prefetch = { url: nextPage, promise };
-    }
 
     async function loadMore() {
       loading = true;
@@ -2101,9 +2260,7 @@
       const ds = parseDateSearch(new URL(nextPage).searchParams.get('s'));
       curLabel = ds ? `${MONTH_ABBR[ds.m][0].toUpperCase() + MONTH_ABBR[ds.m].slice(1)} ${ds.y}, ` : '';
       try {
-        const pending = prefetch?.url === nextPage ? prefetch.promise : fetchDoc(nextPage);
-        prefetch = null;
-        const { res, doc } = await pending;
+        const { res, doc } = await fetchDoc(nextPage);
         // WordPress answers an out-of-range /page/N/ with a redirect (or 404): that's the real end.
         const redirected = res.redirected && new URL(res.url).pathname !== new URL(nextPage).pathname;
         if (!res.ok || redirected) {
@@ -2119,11 +2276,13 @@
           emptyPages = 0;
         }
       } catch (err) {
-        console.warn('[ABB] load more:', err);
-        if (err.retryAfter) {                                  // 429/503: wait it out, then carry on by itself
-          retryAt = Date.now() + err.retryAfter;
-          setTimeout(() => { retryAt = 0; pump(); }, err.retryAfter);
-        } else lastError = true;
+        if (err.name !== 'AbbDeferred') {
+          console.warn('[ABB] load more:', err);
+          if (err.retryAfter) {
+            retryAt = Math.max(retryAt, Date.now() + err.retryAfter);
+          }
+          lastError = true;
+        }
       }
       loading = false;
       return added;
@@ -2150,20 +2309,27 @@
       return hybridActive() && visibleCount() < FILL_TARGET;   // hidden-filter fill
     }
 
-    // The only thing that calls loadMore(). Safe to call from anywhere, any number of times:
-    // if a loop is already running it re-checks needMore() after every page, so it picks up
-    // filter changes, sentinel changes and the toggle without a second loop ever starting.
+    // One paging loop, including time spent waiting in the request queue.
+    let pumping = false;
+
     async function pump() {
-      if (loading) return;
-      while (needMore()) {
-        burst++;
-        await loadMore();
-        if (hybridActive() && burst >= MAX_BURST_PAGES) { burstPaused = true; break; }
-        // Filling for a hidden filter is our idea, not the reader's — pace it so we never hammer the site
-        if (!sentinelVisible && needMore()) await sleep(PAGE_GAP);
+      if (pumping || loading) return;
+
+      pumping = true;
+      try {
+        while (needMore()) {
+          if (burst >= MAX_BURST_PAGES) {
+            burstPaused = true;
+            break;
+          }
+
+          burst++;
+          await loadMore();
+        }
+      } finally {
+        pumping = false;
+        updateStatus();
       }
-      if (sentinelVisible) prefetchNext();        // don't warm page N+1 for a reader who may never scroll
-      updateStatus();
     }
 
     new IntersectionObserver(entries => {
@@ -2175,25 +2341,46 @@
     // Status line doubles as the retry / keep-searching control. nextPage is left alone,
     // so "keep searching" continues from where it paused.
     statusEl.addEventListener('click', () => {
-      if (loading && hybridActive()) { burstPaused = true; return; }   // brake: stop after the page in flight
+      // Do not let clicking Retry override a server-requested cooldown.
+      if (Math.max(retryAt, abbBusyUntil) > Date.now()) return;
+
+      if (pumping && !burstPaused && !lastError) {
+        burstPaused = true;
+        updateStatus();
+        return;
+      }
+
       if (!lastError && !burstPaused) return;
-      lastError = false; burstPaused = false; burst = 0; retryAt = 0;
+
+      lastError = false;
+      burstPaused = false;
+      burst = 0;
+      retryAt = 0;
       pump();
     });
 
     function updateStatus() {
       const found = visibleCount();
-      statusEl.classList.toggle('is-action', lastError || burstPaused || (loading && hybridActive()));
+      const cooling = Math.max(retryAt, abbBusyUntil) > Date.now();
+
+      statusEl.classList.toggle(
+        'is-action',
+        !cooling && (lastError || burstPaused || pumping)
+      );
+
       statusEl.textContent =
-        !infChk.checked  ? 'Infinite scroll is off'
-        : retryAt > Date.now() ? `Site is busy — pausing ${Math.ceil((retryAt - Date.now()) / 1000)}s before retrying`
-        : lastError      ? 'Load failed — click to retry'
-        : burstPaused    ? `Checked ${checked} pages (up to page ${lastPage}), ${found} matching — click to check ${MAX_BURST_PAGES} more`
-        : loading        ? (hybridActive() ? `Searching… ${curLabel}page ${lastPage}, ${found} matching so far — click to pause` : 'Loading…')
+        !infChk.checked ? 'Infinite scroll is off'
+        : cooling       ? 'Site is busy — please wait, then click here to retry'
+        : lastError     ? 'Load failed or paused — click to retry'
+        : burstPaused   ? `Checked ${checked} pages, ${found} matching — click to check up to ${MAX_BURST_PAGES} more`
+        : loading       ? `Loading… ${curLabel}page ${lastPage}, ${found} matching — click to pause`
         : pastDateRange() ? '— No older posts in this date range —'
-        : !nextPage      ? (dateSearch ? '— End of results for this date range —' : '— End of results —')
+        : !nextPage     ? (dateSearch
+                            ? '— End of results for this date range —'
+                            : '— End of results —')
         : 'Scroll for more';
     }
+
 
     /* --- Initial render --- */
     addCardsFrom(document);
@@ -2270,7 +2457,15 @@
       go.type = 'submit';
       input.parentElement.replaceWith(row);           // the <p> holding the input and the magnifier
       row.append(input, go);
-      form.addEventListener('submit', e => { if (!input.value.trim()) { e.preventDefault(); input.focus(); } });
+      form.addEventListener('submit', e => {
+        const q = input.value.trim();
+        if (!q) {
+          e.preventDefault();
+          input.focus();
+          return;
+        }
+        input.value = q.toLowerCase();
+      });
       input.focus();
     }
 
@@ -2299,7 +2494,10 @@
       const boxes = [...list.querySelectorAll('input[type="checkbox"]')];
       const det = el('details', 'abb-adv-section'), sum = el('summary'), count = el('span', 'abb-adv-count');
       sum.append(el('span', 'abb-caret', '▶'), ` ${label}`, count);
-      const master = all.cloneNode(true);             // a clone carries none of the site's handlers
+      const master = all.cloneNode(true);
+      [...master.attributes].forEach(a => {
+        if (/^on/i.test(a.name)) master.removeAttribute(a.name);
+      });
       const masterLab = el('label', 'abb-chip-check abb-adv-all');
       masterLab.append(master, ' All categories');
       const body = el('div', 'abb-adv-body');
