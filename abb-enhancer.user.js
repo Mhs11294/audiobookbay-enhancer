@@ -1,16 +1,12 @@
 // ==UserScript==
 // @name         AudiobookBay Enhancer
 // @namespace    https://github.com/Mhs11294/audiobookbay-enhancer
-// @version      0.2.7
+// @version      0.2.8
 // @description  Card list view, infinite scroll, category/language/format/bitrate filters, Goodreads ratings & links, Colophon-inspired themes for ABB
 // @license      MIT
 // @homepageURL  https://github.com/Mhs11294/audiobookbay-enhancer
 // @supportURL   https://github.com/Mhs11294/audiobookbay-enhancer/issues
-// @updateURL    https://raw.githubusercontent.com/Mhs11294/audiobookbay-enhancer/main/abb-enhancer.user.js
-// @downloadURL  https://raw.githubusercontent.com/Mhs11294/audiobookbay-enhancer/main/abb-enhancer.user.js
-// @match        https://audiobookbay.lu/*
-// @match        https://*.audiobookbay.lu/*
-// @match        http://audiobookbay.lu/*
+// @include      /^https?:\/\/([a-z0-9-]+\.)*audiobookbay\.[a-z]{2,}(:\d+)?\//
 // @connect      www.goodreads.com
 // @grant        GM_setValue
 // @grant        GM_getValue
@@ -18,6 +14,8 @@
 // @grant        GM_xmlhttpRequest
 // @grant        GM_registerMenuCommand
 // @run-at       document-start
+// @downloadURL https://update.greasyfork.org/scripts/595496/AudiobookBay%20Enhancer.user.js
+// @updateURL https://update.greasyfork.org/scripts/595496/AudiobookBay%20Enhancer.meta.js
 // ==/UserScript==
 
 (() => {
@@ -272,7 +270,10 @@
      Neutralise external <script src> from hosts we don't recognise before they load — the same
      MutationObserver technique consent managers use. Inline scripts are left alone. Toggle via the
      Tampermonkey menu; if you run uBlock Origin this is largely redundant and can stay off. */
-  const SCRIPT_ALLOW = /(^|\.)(audiobookbay\.lu|cloudflare\.com|cloudflareinsights\.com)$/i;
+  // Whatever domain the site is on today is a first-party host
+  const SITE_HOST = location.hostname.replace(/^www\./, '');
+  const SCRIPT_ALLOW = new RegExp('(^|\\.)(' + SITE_HOST.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    + '|cloudflare\\.com|cloudflareinsights\\.com)$', 'i');
   const blockedScripts = [];
   if (settings.blockScripts) {
     const neutralise = node => {
@@ -340,6 +341,8 @@
       background: var(--secondary); color: var(--foreground); border: 1px solid var(--border);
       padding: 4px 11px; border-radius: 999px; font-size: 12px; line-height: 1.55;
     }
+    #abb-root .abb-chip a { color: var(--brand); }
+    #abb-root .abb-chip a:hover { text-decoration: underline; }
     .abb-links { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
     .abb-dl {
       display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px;
@@ -358,11 +361,12 @@
       gap: 0 12px; padding: 12px 20px; margin-bottom: 16px;
       background: var(--card); border: 1px solid var(--border); border-radius: 12px;
     }
-    .abb-header h1 { font-size: 18px; font-weight: 700; margin: 0; }
+    .abb-header h1 { display: flex; align-items: center; gap: 8px; font-size: 18px; font-weight: 700; margin: 0; }
+    #abb-root .abb-logo-img { width: 26px !important; height: 26px !important; display: block; border: 0 !important; margin: 0 !important; }
     .abb-nav { display: flex; align-items: center; gap: 4px; }
     .abb-nav > a { color: var(--muted-foreground); font-size: 13px; padding: 6px 12px; border-radius: 8px; }
     .abb-nav > a:hover { background: var(--secondary); color: var(--foreground); }
-    .abb-search { display: flex; align-items: center; margin: 0 0 0 8px; }
+    .abb-search { position: relative; display: flex; align-items: center; margin: 0 0 0 8px; }
     .abb-search .abb-input {
       width: 0; height: 32px; padding: 0; margin-right: 0; opacity: 0; border-color: transparent;
       transition: width .25s ease, opacity .2s, padding .25s, margin .25s;
@@ -370,11 +374,16 @@
     .abb-header.abb-search-open .abb-search .abb-input {
       width: 220px; padding: 0 12px; margin-right: 6px; opacity: 1; border-color: var(--input);
     }
+    /* "Advanced search" drops down in a small card under the search box (right edge = input's right edge) */
     .abb-search .abb-adv {
-      max-width: 0; opacity: 0; overflow: hidden; white-space: nowrap; font-size: 12px;
-      transition: max-width .25s ease, opacity .2s, margin .25s;
+      position: absolute; top: calc(100% + 6px); right: 38px; z-index: 200;
+      padding: 5px 10px; font-size: 12px; white-space: nowrap;
+      background: var(--card); border: 1px solid var(--border); border-radius: 8px;
+      box-shadow: 0 6px 18px rgba(0,0,0,.25);
+      opacity: 0; visibility: hidden; transform: translateY(-4px);
+      transition: opacity .2s, transform .2s, visibility 0s linear .2s;
     }
-    .abb-header.abb-search-open .abb-search .abb-adv { max-width: 120px; opacity: 1; margin-right: 10px; }
+    .abb-header.abb-search-open .abb-search .abb-adv { opacity: 1; visibility: visible; transform: none; transition-delay: 0s; }
     .abb-theme { position: relative; margin-left: 8px; }
     .abb-theme-btn span { display: none; }      /* theme name lives in the tooltip */
     .abb-theme-pop { right: 0; width: 340px; max-height: 380px; overflow-y: auto; }
@@ -1333,6 +1342,25 @@
   };
   const splitSegs = p => p.innerHTML.split(/<br\s*\/?>/i);
 
+  // Site search URL in the site's own form: lowercase, + for spaces. tt=1 = titles only.
+  const searchUrl = (q, tt) =>
+    `/?s=${encodeURIComponent(q.trim().toLowerCase()).replace(/%20/g, '+')}${tt ? `&tt=${tt}` : ''}`;
+  const AUTHOR_TT   = 1;   // titles are "Title - Author", so a title-only search is precise
+  const NARRATOR_TT = 0;   // narrators aren't in titles — search everything (as the site's own link does)
+  // "Name, Name" as clickable site searches
+  function nameLinks(names, tt, newTab) {
+    const frag = document.createDocumentFragment();
+    names.forEach((n, i) => {
+      if (i) frag.append(', ');
+      const a = el('a', 'abb-name', n);
+      a.href = searchUrl(n, tt);
+      a.title = `Search AudioBook Bay for “${n}”`;
+      if (newTab) { a.target = '_blank'; a.rel = 'noopener noreferrer'; }
+      frag.appendChild(a);
+    });
+    return frag;
+  }
+
   // Description element: chips (credits, series, length…) on top, cleaned prose below.
   // `full` keeps more label lines as chips (book page); compact mode chips only the essentials.
   function buildDescription(source, base, { newTab = true, full = false } = {}) {
@@ -1343,8 +1371,8 @@
 
     const written   = [...source.querySelectorAll('a .author')].map(s => strip(s.textContent));
     const narrators = [...source.querySelectorAll('a .narrator')].map(s => strip(s.textContent));
-    if (written.length)   chips.push(['✍ Written by', written.join(', ')]);
-    if (narrators.length) chips.push(['🎙 Read by', narrators.join(', ')]);
+    if (written.length)   chips.push(['✍ Written by', nameLinks(written, AUTHOR_TT, newTab)]);
+    if (narrators.length) chips.push(['🎙 Read by',    nameLinks(narrators, NARRATOR_TT, newTab)]);
     const abr = source.querySelector('.is_abridged')?.textContent.trim();
     if (full && abr) chips.push(['📖 ' + abr[0].toUpperCase() + abr.slice(1).toLowerCase(), '']);
 
@@ -1392,7 +1420,12 @@
 
     if (chips.length) {
       const row = el('div', 'abb-chips');
-      chips.forEach(([label, value]) => row.appendChild(el('span', 'abb-chip', value ? `${label}: ${value}` : label)));
+      chips.forEach(([label, value]) => {
+        const chip = el('span', 'abb-chip');
+        if (value instanceof Node) chip.append(label + ': ', value);
+        else chip.textContent = value ? `${label}: ${value}` : label;
+        row.appendChild(chip);
+      });
       wrap.appendChild(row);
     }
     const body = el('div', 'abb-body');
@@ -1561,21 +1594,21 @@
   function buildHeader() {
     const header = el('header', 'abb-header');
     header.innerHTML = `
-      <a class="abb-logo" href="/"><h1>📚 AudioBook Bay</h1></a>
+      <a class="abb-logo" href="/"><h1><img class="abb-logo-img" src="/images/audiobook.png" alt="" width="26" height="26">AudioBook Bay</h1></a>
       <nav class="abb-nav">
         ${NAV_LINKS.map(([label, href, title]) => `<a href="${href}" title="${esc(title)}">${label}</a>`).join('')}
         <form class="abb-search" method="get" action="/">
-          <a class="abb-adv" href="/member/advanced_search" title="Advanced search">Advanced →</a>
           <input class="abb-input" type="search" name="s" maxlength="50" placeholder="Search AudioBook Bay…" autocomplete="off">
           <button type="button" class="abb-btn abb-icon" title="Search" aria-label="Search">${ICON_SEARCH}</button>
+          <a class="abb-adv" href="/member/advanced_search" title="Advanced search">Advanced search →</a>
         </form>
         <div class="abb-theme">
           <button type="button" class="abb-btn abb-icon abb-theme-btn" title="Theme">🎨<span></span></button>
           <div class="abb-pop abb-theme-pop"></div>
         </div>
       </nav>`;
-    // Home means a clean slate: drop every hybrid filter so the listing never resumes a crawl.
-    // auxclick covers middle-click (new tabs inherit sessionStorage in Chromium).
+    // If the logo ever 404s (e.g. after a domain move), fall back to the emoji
+    header.querySelector('.abb-logo-img').addEventListener('error', e => e.target.replaceWith('📚 '), { once: true });
     const logo = header.querySelector('.abb-logo');
     ['click', 'auxclick'].forEach(ev => logo.addEventListener(ev, clearHybridFilters));
     wireSearch(header);
