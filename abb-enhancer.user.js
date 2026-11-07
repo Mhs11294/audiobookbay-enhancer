@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AudiobookBay Enhancer
 // @namespace    https://github.com/Mhs11294/audiobookbay-enhancer
-// @version      0.2.8
+// @version      0.2.9
 // @description  Card list view, infinite scroll, category/language/format/bitrate filters, Goodreads ratings & links, Colophon-inspired themes for ABB
 // @license      MIT
 // @homepageURL  https://github.com/Mhs11294/audiobookbay-enhancer
@@ -550,6 +550,10 @@
     body.abb-book .abb-torrent span { color: inherit !important; font: inherit !important; }
     body.abb-book .abb-torrent a, body.abb-book .commentZone a { color: var(--brand); }
 
+    body.abb-book a:has(> img[src*="/images/aetr.gif"]) {
+      display: none !important;
+    }
+
 	/* collapsible tracker list (built by collapseTrackers) */
     body.abb-book .abb-trackers {
       background: var(--secondary); border: 1px solid var(--border); border-radius: 10px; margin-bottom: 14px;
@@ -1013,7 +1017,71 @@
   // What the ABB title tells us about the book, for ranking Goodreads' candidates
   function grContext(raw) {
     const parts = cleanTitle(raw).split(/\s+[-–—]\s+/);
-    return { author: parts.length > 1 ? parts[parts.length - 1] : '', num: seriesNum(parts[0]) };
+    const author = parts.length > 1 ? parts.pop().trim() : '';
+    const title = parts.join(' - ').trim();
+
+    return {
+      title,
+      author,
+      num: seriesNum(title)
+    };
+  }
+
+  function grIdentityText(value) {
+    return String(value || '')
+      .normalize('NFKC')
+      .toLowerCase()
+      .replace(/[’‘']/g, '')       // Hitchhiker’s = Hitchhiker's
+      .replace(/&/g, ' and ')
+      .replace(/[^\p{L}\p{N}]+/gu, ' ')
+      .trim();
+  }
+
+  function grIdentityTitle(value) {
+    return grIdentityText(
+      String(value || '')
+        // Strip numbered series annotations, not meaningful subtitles:
+        // "Title (Series Name, #1)" -> "Title"
+        .replace(
+          /\s*\([^()]*#\s*\d+(?:\.\d+)?[^()]*\)\s*$/,
+          ''
+        )
+        .replace(
+          /\s*\([^()]*\b(?:book|volume|vol\.?)\s+(?:\d+(?:\.\d+)?|one|two|three|four|five|six|seven|eight|nine|ten)\s*\)\s*$/i,
+          ''
+        )
+    );
+  }
+
+  function grIdentityMatches(ctx, book) {
+    const bare = String(book.bookTitleBare || book.title || '');
+    const full = String(book.title || bare);
+    const author = String(book.author?.name || '');
+
+    if (
+      isStudyGuide(bare, author) ||
+      isStudyGuide(full, author)
+    ) return false;
+
+    const expectedTitle = grIdentityTitle(ctx.title);
+    const expectedAuthor = grIdentityText(ctx.author);
+
+    // Missing evidence is not a confirmed identity.
+    if (!expectedTitle || !expectedAuthor) return false;
+
+    if (grIdentityText(author) !== expectedAuthor) return false;
+
+    // Check both fields: a shortened title must not conceal a subtitle
+    // such as "Douglas Adams Live in Concert".
+    if (
+      grIdentityTitle(bare) !== expectedTitle ||
+      grIdentityTitle(full) !== expectedTitle
+    ) return false;
+
+    const number = seriesNum(full) || seriesNum(bare);
+    if (ctx.num && number && ctx.num !== number) return false;
+
+    return true;
   }
 
   // Goodreads' own search-box endpoint: small JSON, no HTML parsing, copes with the full ABB title.
@@ -1026,13 +1094,9 @@
     if (!Array.isArray(list)) throw new GrTransient('unexpected JSON', { backoff: 10000 });
     // Study guides / summaries are never the book. Dropping them all makes this query a miss,
     // so the next, simpler query gets its turn.
-    const cands = list.filter(b => {
-      if (!b?.bookId) return false;
-      if (isStudyGuide(b.bookTitleBare || b.title, b.author?.name)) return false;
-
-      const number = seriesNum(b.title) || seriesNum(b.bookTitleBare);
-      return !(ctx.num && number && ctx.num !== number);
-    });
+    const cands = list.filter(b =>
+      b?.bookId && grIdentityMatches(ctx, b)
+    );
     if (!cands.length) return null;
     // Score rather than trust rank 1: Goodreads' order still counts, but the uploader's author
     // and series number ("Book 2") outrank it, and popular editions beat self-published duplicates.
@@ -1052,6 +1116,8 @@
     return {
       url: 'https://www.goodreads.com/book/show/' + best.bookId,
       title: (best.bookTitleBare || '').replace(/\s+/g, ' ').trim(),
+      fullTitle: (best.title || best.bookTitleBare || '')
+        .replace(/\s+/g, ' ').trim(),
       rating: parseFloat(best.avgRating) || 0,
       count: Number(best.ratingsCount) || 0,
       series: ((best.title || '').match(/\(([^()]*#[^()]*)\)\s*$/) || [])[1] || '',
@@ -1088,7 +1154,17 @@
   for (const [k, e] of Object.entries(grCache)) {
     if (!e.url) continue;
     const n1 = seriesNum(k), n2 = seriesNum(e.series) || seriesNum(e.title);
-    if (isStudyGuide(e.title, e.author) || (n1 && n2 && n1 !== n2)) { delete grCache[k]; grSwept++; }
+    if (
+      !grIdentityMatches(grContext(k), {
+        bookTitleBare: e.title,
+        title: e.fullTitle || e.title,
+        author: { name: e.author }
+      }) ||
+      (n1 && n2 && n1 !== n2)
+    ) {
+      delete grCache[k];
+      grSwept++;
+    }
   }
   if (grSwept) saveGrCache();
 
@@ -1284,6 +1360,36 @@
       language: grab(/Language:\s*([A-Za-z&'\- ]+?)(?:\s*Keywords|$)/i).trim(),
       posted: grab(/Posted:\s*([0-9]{1,2} \w{3,9} [0-9]{4})/),
     };
+  }
+
+  // Used by both fetched card details and the full book-page layout.
+  // ABB's .desc wrapper can have itemprop="description", itemprop="",
+  // or no itemprop attribute at all.
+  function findBookDescription(scope) {
+    if (!scope) return null;
+
+    const content = scope.matches?.('.postContent')
+      ? scope
+      : scope.querySelector('.postContent');
+
+    if (!content) return null;
+
+    // Prefer the site's explicit description wrapper. Fall back to
+    // semantic markup only within the post content—not the whole page.
+    const selectors = [
+      ':scope > .desc',
+      '.desc',
+      '[itemprop~="description"]:not(meta)'
+    ];
+
+    for (const selector of selectors) {
+      const match = [...content.querySelectorAll(selector)]
+        .find(node => node.textContent.trim());
+
+      if (match) return match;
+    }
+
+    return null;
   }
 
   const ALLOWED_TAGS = new Set(['P', 'BR', 'B', 'STRONG', 'I', 'EM', 'U', 'UL', 'OL', 'LI', 'A', 'SPAN']);
@@ -2205,7 +2311,7 @@
         const { res, html, doc } = await fetchDoc(url);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         markAbridged(card, doc);
-        const src = doc.querySelector('.desc[itemprop="description"]');
+        const src = findBookDescription(doc);
         const desc = src ? buildDescription(src, url) : el('div', 'abb-desc');
         if (!src) desc.innerHTML = '<em>No description found on the detail page.</em>';
         const more = el('a', 'abb-more', 'Full page ↗');
@@ -2584,7 +2690,7 @@
     document.body.appendChild(root);
 
     const post = content.querySelector('.post');
-    const desc = post?.querySelector('.desc[itemprop="description"]');
+    const desc = findBookDescription(post);
 
     if (!(isBook && post && desc)) {
       // Generic page (login, donate, advanced search…): wrap everything in one card
